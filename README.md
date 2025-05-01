@@ -49,9 +49,6 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your configuration
 
-# Run database migrations
-alembic upgrade head
-
 # Start the backend server
 uvicorn app.main:app --reload
 ```
@@ -69,7 +66,7 @@ npm install
 npm run dev
 ```
 
-### Docker Deployment
+### Docker Deployment (for later)
 
 ```bash
 # Build and start all services
