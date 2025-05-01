@@ -1,0 +1,13 @@
+annotated-types==0.7.0
+DateTime==5.5
+pydantic==2.11.4
+pydantic_core==2.33.2
+pytz==2025.2
+setuptools==80.1.0
+SQLAlchemy==2.0.40
+sqlmodel==0.0.24
+typing==3.7.4.3
+typing-inspection==0.4.0
+typing_extensions==4.13.2
+uuid==1.30
+zope.interface==7.2
