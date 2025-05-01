@@ -1,7 +1,5 @@
 # Steadi
 
-![Steadi Logo](./assets/logo.png)
-
 ## Smart Inventory Management for Small Businesses
 
 Steadi is an AI-powered inventory management system that helps small businesses automate their inventory operations with enterprise-grade tools at small business prices.
@@ -128,7 +126,7 @@ Commit Message Structure
 
 <footer>
 
-##Types
+## Types
 - feat: A new feature
 - fix: A bug fix
 - docs: Documentation changes only
@@ -138,7 +136,7 @@ Commit Message Structure
 - chore: Changes to build process, dependencies, etc.
 - perf: Performance improvements
 
-##Scope (Optional)
+## Scope (Optional)
 Indicates what part of the codebase was modified:
 - inventory
 - auth
