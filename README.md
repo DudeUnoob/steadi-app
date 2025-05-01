@@ -166,6 +166,18 @@ test(threshold): add unit tests for reorder calculations
 
 Ensure correct behavior with edge cases like zero sales or
 custom safety stock settings.
+
+## Checking Out Branches
+```
+git checkout -b <your_name>/<feature_name>
+
+git checkout main
+git pull origin main
+git checkout <your_name>/<feature_name>
+git merge main
+
+```
+
 ---
 
 © 2025 Steadi, Inc. All rights reserved.
