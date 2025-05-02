@@ -181,3 +181,86 @@ git merge main
 ---
 
 © 2025 Steadi, Inc. All rights reserved.
+
+# Steadi - Role-Based Authentication
+
+Implementation of the Role-Based Authentication component for the Steadi app, following the Product Requirements Document (PRD).
+
+## Features
+
+- JWT-based authentication
+- Role-based access control (OWNER, MANAGER, STAFF)
+- User registration and login
+- Token refresh mechanism
+- Integration with Neon PostgreSQL database
+
+## Setup
+
+1. Create a virtual environment and install dependencies:
+
+```bash
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+pip install fastapi[all] sqlmodel psycopg2-binary python-jose[cryptography] passlib[bcrypt] uvicorn
+```
+
+2. Set up environment variables (or create a `.env` file):
+
+```
+DATABASE_URL=postgresql://neondb_owner:npg_fJaKY45kiMbh@ep-red-butterfly-a4516s6r-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require
+JWT_SECRET=your-secret-key
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+```
+
+3. Run the application:
+
+```bash
+python main.py
+```
+
+The API will be available at http://localhost:8000
+
+## API Endpoints
+
+- `POST /auth/signup` - Register a new user
+- `POST /auth/login` - Login with email and password
+- `POST /auth/refresh-token` - Get a new access token using refresh token
+- `GET /auth/users/me` - Get current user information
+- `POST /auth/users` - Create a new user (OWNER role required)
+
+## Usage Examples
+
+### Register a new user
+
+```bash
+curl -X POST "http://localhost:8000/auth/signup" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "password": "password123", "role": "STAFF"}'
+```
+
+### Login
+
+```bash
+curl -X POST "http://localhost:8000/auth/login" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=user@example.com&password=password123"
+```
+
+### Access protected endpoint
+
+```bash
+curl -X GET "http://localhost:8000/auth/users/me" \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+```
+
+## Project Structure
+
+- `app/` - Main application package
+  - `main.py` - FastAPI application instance
+  - `database.py` - Database connection and session management
+  - `auth.py` - Authentication utilities (JWT, password hashing)
+  - `models.py` - Data models and schemas
+  - `routers/` - API route modules
+    - `auth.py` - Authentication routes
+- `main.py` - Application entry point

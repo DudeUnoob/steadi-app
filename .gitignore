@@ -1,0 +1,9 @@
+.env
+/app/routers/__pycache__
+/app/models/__pycache__
+/app/models/data_models/__pycache__
+/app/models/enums/__pycache__
+
+/app/__pycache__ 
+
+venv/
