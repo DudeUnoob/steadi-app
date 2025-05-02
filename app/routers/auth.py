@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 from app.database import get_db
-from app.models import User, UserCreate, UserRead, Token, UserRole
+from app.schemas.data_models.User import UserCreate, UserRead, Token
+from app.models.data_models.User import User
+from app.models.enums.UserRole import UserRole
 from app.auth import (
     verify_password, 
     get_password_hash, 

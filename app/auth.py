@@ -6,7 +6,9 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session, select
 from app.database import get_db
-from app.models import User, UserRole
+from app.models.data_models.User import User
+from app.models.enums.UserRole import UserRole
+
 import os
 
 # Get environment variables

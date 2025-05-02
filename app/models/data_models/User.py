@@ -3,7 +3,6 @@ from sqlmodel import Field, Relationship, SQLModel
 from datetime import datetime
 from uuid import UUID
 from app.models.enums.UserRole import UserRole
-from app.models.data_models.Notification import Notification
 
 class User(SQLModel, table=True):
     """User account with authentication and authorization"""
@@ -14,3 +13,9 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     # Relationships
     notifications: List["Notification"] = Relationship(back_populates="user")
+
+    class Config:
+        json_encoders = {
+            UUID: lambda v: str(v),
+            UserRole: lambda v: v.value
+        }

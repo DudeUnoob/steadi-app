@@ -3,7 +3,6 @@ from sqlmodel import Field, Relationship, SQLModel
 from datetime import datetime
 from uuid import UUID
 from app.models.enums.NotificationChannel import NotificationChannel
-from app.models.data_models.User import User
 
 class Notification(SQLModel, table=True):
     """User notifications for alerts and events"""
@@ -14,4 +13,4 @@ class Notification(SQLModel, table=True):
     sent_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     read_at: Optional[datetime] = None
     # Relationships
-    user: User = Relationship(back_populates="notifications")
+    user: "User" = Relationship(back_populates="notifications")
