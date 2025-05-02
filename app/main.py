@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import init_db
+from app.db.database import init_db
 from app.routers import auth_router
 import os
 from dotenv import load_dotenv

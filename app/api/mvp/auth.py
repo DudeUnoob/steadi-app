@@ -5,7 +5,7 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session, select
-from app.database import get_db
+from app.db.database import get_db
 from app.models.data_models.User import User
 from app.models.enums.UserRole import UserRole
 
