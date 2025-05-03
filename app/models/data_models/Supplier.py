@@ -1,11 +1,15 @@
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from sqlmodel import Field, Relationship, SQLModel
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, uuid4
+
+if TYPE_CHECKING:
+    from app.models.data_models.Product import Product
+    from app.models.data_models.PurchaseOrder import PurchaseOrder
 
 class Supplier(SQLModel, table=True):
     """Supplier or vendor information"""
-    id: Optional[UUID] = Field(default=None, primary_key=True)
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
     name: str = Field(index=True)
     contact_email: str
     phone: Optional[str] = None
