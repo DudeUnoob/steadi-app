@@ -1,11 +1,14 @@
+from typing import Optional, TYPE_CHECKING
 from sqlmodel import Field, Relationship, SQLModel
 from datetime import datetime
-from uuid import UUID
-from typing import Optional
+from uuid import UUID, uuid4
+
+if TYPE_CHECKING:
+    from app.models.data_models.Product import Product
 
 class InventoryLedger(SQLModel, table=True):
     """Audit trail for all inventory changes"""
-    id: Optional[UUID] = Field(default=None, primary_key=True)
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
     product_id: UUID = Field(foreign_key="product.id")
     quantity_delta: int
     quantity_after: int
