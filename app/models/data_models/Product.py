@@ -1,12 +1,18 @@
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 from sqlmodel import Field, Relationship, SQLModel
 from datetime import datetime
-from uuid import UUID
+from uuid import UUID, uuid4
 from app.models.enums.AlertLevel import AlertLevel
+
+if TYPE_CHECKING:
+    from app.models.data_models.Supplier import Supplier
+    from app.models.data_models.InventoryLedger import InventoryLedger
+    from app.models.data_models.Sale import Sale
+    from app.models.data_models.PurchaseOrderItem import PurchaseOrderItem
 
 class Product(SQLModel, table=True):
     """Inventory item with stock levels and thresholds"""
-    id: Optional[UUID] = Field(default=None, primary_key=True)
+    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
     sku: str = Field(unique=True, index=True)
     name: str = Field(index=True)
     variant: Optional[str] = None
