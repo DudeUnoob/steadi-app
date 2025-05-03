@@ -1,5 +1,3 @@
-from app.models.data_models.Product import Product
-from app.models.data_models.PurchaseOrder import PurchaseOrder
 from sqlmodel import Field, Relationship, SQLModel
 from datetime import datetime
 from uuid import UUID
@@ -13,5 +11,5 @@ class PurchaseOrderItem(SQLModel, table=True):
     quantity: int = Field(gt=0)
     unit_cost: float = Field(ge=0)
     # Relationships
-    purchase_order: PurchaseOrder = Relationship(back_populates="items")
-    product: Product = Relationship(back_populates="purchase_order_items")
+    purchase_order: "PurchaseOrder" = Relationship(back_populates="items")
+    product: "Product" = Relationship(back_populates="purchase_order_items")

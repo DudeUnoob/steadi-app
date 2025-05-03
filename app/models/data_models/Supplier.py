@@ -2,8 +2,6 @@ from typing import Optional, List
 from sqlmodel import Field, Relationship, SQLModel
 from datetime import datetime
 from uuid import UUID
-from app.models.data_models.Product import Product
-from app.models.data_models.PurchaseOrder import PurchaseOrder
 
 class Supplier(SQLModel, table=True):
     """Supplier or vendor information"""
