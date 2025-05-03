@@ -3,6 +3,9 @@ import logging
 from sqlmodel import create_engine, Session, SQLModel
 from sqlalchemy.exc import SQLAlchemyError
 
+# Import models to ensure they are registered with SQLModel metadata
+import app.models.data_models
+
 # Set up logging
 logger = logging.getLogger(__name__)
 
