@@ -1,6 +1,6 @@
 from enum import Enum
 
-class POStats(str, Enum):
+class POStatus(str, Enum):
     DRAFT = "DRAFT"
     SENT = "SENT"
     RECEIVED = "RECEIVED"

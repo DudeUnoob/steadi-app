@@ -1,5 +1,4 @@
 from app.models.enums.POStatus import POStatus
-from app.models.data_models.Supplier import Supplier
 from app.models.data_models.PurchaseOrderItem import PurchaseOrderItem
 from sqlmodel import Field, Relationship, SQLModel
 from datetime import datetime
@@ -16,5 +15,5 @@ class PurchaseOrder(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     # Relationships
-    supplier: Supplier = Relationship(back_populates="purchase_orders")
+    supplier: "Supplier" = Relationship(back_populates="purchase_orders")
     items: List["PurchaseOrderItem"] = Relationship(back_populates="purchase_order")

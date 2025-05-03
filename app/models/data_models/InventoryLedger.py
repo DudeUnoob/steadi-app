@@ -1,4 +1,3 @@
-from app.models.data_models.Product import Product
 from sqlmodel import Field, Relationship, SQLModel
 from datetime import datetime
 from uuid import UUID
@@ -14,4 +13,4 @@ class InventoryLedger(SQLModel, table=True):
     reference_id: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
     # Relationships
-    product: Product = Relationship(back_populates="ledger_entries")
+    product: "Product" = Relationship(back_populates="ledger_entries")

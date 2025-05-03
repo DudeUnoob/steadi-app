@@ -3,10 +3,6 @@ from sqlmodel import Field, Relationship, SQLModel
 from datetime import datetime
 from uuid import UUID
 from app.models.enums.AlertLevel import AlertLevel
-from app.models.data_models.Supplier import Supplier
-from app.models.data_models.InventoryLedger import InventoryLedger
-from app.models.data_models.Sale import Sale
-from app.models.data_models.PurchaseOrderItem import PurchaseOrderItem
 
 class Product(SQLModel, table=True):
     """Inventory item with stock levels and thresholds"""
@@ -23,7 +19,7 @@ class Product(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     alert_level: Optional[AlertLevel] = None
     # Relationships
-    supplier: Optional[Supplier] = Relationship(back_populates="products")
+    supplier: Optional["Supplier"] = Relationship(back_populates="products")
     ledger_entries: List["InventoryLedger"] = Relationship(back_populates="product")
     sales: List["Sale"] = Relationship(back_populates="product")
     purchase_order_items: List["PurchaseOrderItem"] = Relationship(back_populates="product")
