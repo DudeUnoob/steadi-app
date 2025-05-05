@@ -41,17 +41,21 @@ class DashboardService:
         skip = (page - 1) * limit
         products = self.db.exec(query.offset(skip).limit(limit)).all()
         
-        # Process each product
+        # Get product IDs for batch processing
+        product_ids = [product.id for product in products]
+        
+        # Get sales history for all products in one query
+        batch_sales_history = self.analytics_service.get_batch_sales_history(product_ids, period=7)
+        
+        # Get days of stock for all products in one query
+        batch_days_of_stock = self.threshold_service.calculate_batch_days_of_stock(product_ids)
+        
+        # Process each product (now using the batch results)
         inventory_items = []
         for product in products:
-            # Get 7-day sales history
-            sales_history = self.analytics_service.get_sales_history(
-                product_id=product.id,
-                period=7
-            )
-            
-            # Calculate days of stock
-            days_of_stock = self.threshold_service.calculate_days_of_stock(product.id)
+            # Get data from batch results
+            sales_history = batch_sales_history.get(product.id, [])
+            days_of_stock = batch_days_of_stock.get(product.id, 0)
             
             # Determine badge and color based on stock level
             badge = None

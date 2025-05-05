@@ -139,6 +139,59 @@ class AnalyticsService:
         
         return top_sellers
     
+    def get_batch_sales_history(self, product_ids: List[UUID], period: int = 7) -> Dict[UUID, List[Dict[str, Any]]]:
+        """Get sales history for multiple products at once"""
+        # Define date range
+        end_date = datetime.utcnow()
+        start_date = end_date - timedelta(days=period)
+        
+        # Initialize the result dictionary for all products
+        result_dict = {}
+        for product_id in product_ids:
+            # Create empty sales history for each product
+            sales_history = []
+            for i in range(period):
+                date = end_date - timedelta(days=i)
+                sales_history.append({
+                    "date": date.strftime("%Y-%m-%d"),
+                    "quantity": 0
+                })
+            # Add to result dictionary
+            result_dict[product_id] = sales_history
+        
+        # Get all sales for all products in one query
+        query = select(
+            Sale.product_id,
+            func.date_trunc('day', Sale.sale_date).label("day"),
+            func.sum(Sale.quantity).label("total_quantity")
+        ).where(
+            (Sale.product_id.in_(product_ids)) &
+            (Sale.sale_date >= start_date) &
+            (Sale.sale_date <= end_date)
+        ).group_by(
+            Sale.product_id,
+            func.date_trunc('day', Sale.sale_date)
+        )
+        
+        # Execute query
+        results = self.db.exec(query).all()
+        
+        # Populate the sales history for each product
+        for result in results:
+            date_str = result.day.strftime("%Y-%m-%d")
+            sales_history = result_dict.get(result.product_id, [])
+            
+            for entry in sales_history:
+                if entry["date"] == date_str:
+                    entry["quantity"] = result.total_quantity
+                    break
+        
+        # Reverse all histories to get chronological order
+        for product_id in result_dict:
+            result_dict[product_id].reverse()
+        
+        return result_dict
+    
     def get_sales_history(self, product_id: UUID, period: int = 7) -> List[Dict[str, Any]]:
         """Get sales history for product"""
         # Define date range
