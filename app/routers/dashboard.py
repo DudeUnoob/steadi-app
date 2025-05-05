@@ -27,57 +27,6 @@ class InventoryItemResponse(BaseModel):
     sales_trend: List[float]  # Last 7 days sales data
     days_of_stock: float
 
-@router.post("/test/seed")
-async def seed_test_data(
-    current_user: User = Depends(get_owner_user),
-    db: Session = Depends(get_db)
-):
-    """Seed the database with test data (owner role required)"""
-    try:
-        # Create a supplier
-        supplier = Supplier(
-            name="Test Supplier",
-            contact_email="supplier@test.com",
-            lead_time_days=7
-        )
-        db.add(supplier)
-        db.commit()
-        db.refresh(supplier)
-        
-        # Create some products
-        products = []
-        for i in range(10):
-            product = Product(
-                sku=f"TEST-{i:03d}",
-                name=f"Test Product {i}",
-                supplier_id=supplier.id,
-                cost=random.uniform(10, 100),
-                on_hand=random.randint(0, 100),
-                reorder_point=random.randint(10, 30),
-                safety_stock=random.randint(5, 15),
-                lead_time_days=7
-            )
-            products.append(product)
-            db.add(product)
-        
-        db.commit()
-        
-        # Create sales data for the last 30 days
-        for product in products:
-            for i in range(30):
-                sale_date = datetime.utcnow() - timedelta(days=i)
-                sale = Sale(
-                    product_id=product.id,
-                    quantity=random.randint(0, 5),
-                    sale_date=sale_date
-                )
-                db.add(sale)
-        
-        db.commit()
-        return {"message": "Test data created successfully"}
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/inventory", response_model=dict)
 async def get_inventory_dashboard(
