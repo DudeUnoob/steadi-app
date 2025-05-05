@@ -56,6 +56,51 @@ class ThresholdService:
         
         return results
     
+    def calculate_batch_days_of_stock(self, product_ids: List[UUID]) -> Dict[UUID, float]:
+        """Calculate days of stock for multiple products at once"""
+        if not product_ids:
+            return {}
+            
+        # Get all products in one query
+        products = self.db.exec(select(Product).where(Product.id.in_(product_ids))).all()
+        product_map = {product.id: product for product in products}
+        
+        # Calculate average daily sales over the past 30 days for all products
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        
+        # Get total sales for all products in one query
+        sales_query = select(
+            Sale.product_id,
+            func.sum(Sale.quantity).label("total_quantity")
+        ).where(
+            (Sale.product_id.in_(product_ids)) & 
+            (Sale.sale_date >= thirty_days_ago)
+        ).group_by(Sale.product_id)
+        
+        # Create a dictionary of product_id -> total_sales
+        sales_results = {
+            result.product_id: result.total_quantity 
+            for result in self.db.exec(sales_query).all()
+        }
+        
+        # Calculate days of stock for each product
+        days_of_stock = {}
+        for product_id in product_ids:
+            product = product_map.get(product_id)
+            if not product:
+                continue
+                
+            # Get total sales or default to 0
+            total_sales = sales_results.get(product_id, 0)
+            
+            # Calculate average daily sales (minimum of 0.1 to avoid division by zero)
+            avg_daily_sales = max(0.1, total_sales / 30)
+            
+            # Calculate and round days of stock
+            days_of_stock[product_id] = round(product.on_hand / avg_daily_sales, 1)
+            
+        return days_of_stock
+    
     def calculate_reorder_point(self, product_id: UUID) -> int:
         """Calculate reorder point based on formula:
         reorder_point = safety_stock + (avg_daily_sales × lead_time_days)
