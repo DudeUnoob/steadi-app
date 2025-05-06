@@ -41,6 +41,7 @@ async def tenant_middleware(request: Request, call_next):
 # Include routers
 app.include_router(auth_router.router)
 app.include_router(dashboard_router)
+app.include_router(inventory_router)
 app.include_router(edit_router)
 app.include_router(alerts_router)
 
