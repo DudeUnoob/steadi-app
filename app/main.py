@@ -4,6 +4,7 @@ from app.db.database import init_db
 from app.routers import auth as auth_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.edit import router as edit_router
+from app.routers.alerts import router as alerts_router
 import os
 from dotenv import load_dotenv
 
@@ -40,6 +41,7 @@ async def tenant_middleware(request: Request, call_next):
 app.include_router(auth_router.router)
 app.include_router(dashboard_router)
 app.include_router(edit_router)
+app.include_router(alerts_router)
 
 # Initialize database on startup
 @app.on_event("startup")
