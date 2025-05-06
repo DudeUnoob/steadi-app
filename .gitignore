@@ -6,4 +6,5 @@
 
 /app/__pycache__ 
 
+.venv/
 venv/

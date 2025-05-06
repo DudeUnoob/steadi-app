@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 from .User import User
 from .Supplier import Supplier
 from .Product import Product
@@ -19,8 +18,8 @@ __all__ = [
     "PurchaseOrderItem",
     "Connector",
     "Notification",
-=======
 """Data models initialization in the correct order to avoid circular imports"""
+]
 
 # First, import all enum types
 from app.models.enums.AlertLevel import AlertLevel
@@ -51,5 +50,4 @@ __all__ = [
     "Sale", 
     "PurchaseOrder",
     "PurchaseOrderItem"
->>>>>>> main
 ] 
