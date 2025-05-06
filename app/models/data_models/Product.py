@@ -9,6 +9,7 @@ if TYPE_CHECKING:
     from app.models.data_models.InventoryLedger import InventoryLedger
     from app.models.data_models.Sale import Sale
     from app.models.data_models.PurchaseOrderItem import PurchaseOrderItem
+    from app.models.data_models.SkuAlias import SkuAlias
 
 class Product(SQLModel, table=True):
     """Inventory item with stock levels and thresholds"""
@@ -24,8 +25,13 @@ class Product(SQLModel, table=True):
     lead_time_days: int = Field(default=7, ge=1)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     alert_level: Optional[AlertLevel] = None
+    user_id: UUID = Field(foreign_key="user.id")
+    
     # Relationships
     supplier: Optional["Supplier"] = Relationship(back_populates="products")
     ledger_entries: List["InventoryLedger"] = Relationship(back_populates="product")
     sales: List["Sale"] = Relationship(back_populates="product")
     purchase_order_items: List["PurchaseOrderItem"] = Relationship(back_populates="product")
+    
+    # Use string for the relationship target to avoid circular imports
+    aliases: List["SkuAlias"] = Relationship(sa_relationship="SkuAlias")

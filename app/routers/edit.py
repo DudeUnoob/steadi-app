@@ -67,6 +67,15 @@ class SaleUpdate(BaseModel):
     notes: Optional[str] = None
 
 # Product endpoints
+@router.get("/products", response_model=List[Product])
+async def list_products(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all products for the current user"""
+    edit_service = EditServiceClass(db)
+    return edit_service.get_products(current_user.id)
+
 @router.post("/products", status_code=status.HTTP_201_CREATED, response_model=Product)
 async def create_product(
     product_data: ProductCreate,
@@ -75,7 +84,7 @@ async def create_product(
 ):
     """Create a new product (manager role required)"""
     edit_service = EditServiceClass(db)
-    result = edit_service.create_product(product_data.dict())
+    result = edit_service.create_product(product_data.dict(), current_user.id)
     
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(
@@ -94,7 +103,11 @@ async def update_product(
 ):
     """Update a product (manager role required)"""
     edit_service = EditServiceClass(db)
-    result = edit_service.update_product(product_id, product_data.dict(exclude_unset=True))
+    result = edit_service.update_product(
+        product_id, 
+        product_data.dict(exclude_unset=True),
+        current_user.id
+    )
     
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(
@@ -112,7 +125,7 @@ async def delete_product(
 ):
     """Delete a product (manager role required)"""
     edit_service = EditServiceClass(db)
-    result = edit_service.delete_product(product_id)
+    result = edit_service.delete_product(product_id, current_user.id)
     
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(
@@ -123,6 +136,15 @@ async def delete_product(
     return result
 
 # Supplier endpoints
+@router.get("/suppliers", response_model=List[Supplier])
+async def list_suppliers(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get all suppliers for the current user"""
+    edit_service = EditServiceClass(db)
+    return edit_service.get_suppliers(current_user.id)
+
 @router.post("/suppliers", status_code=status.HTTP_201_CREATED, response_model=Supplier)
 async def create_supplier(
     supplier_data: SupplierCreate,
@@ -131,7 +153,7 @@ async def create_supplier(
 ):
     """Create a new supplier (manager role required)"""
     edit_service = EditServiceClass(db)
-    result = edit_service.create_supplier(supplier_data.dict())
+    result = edit_service.create_supplier(supplier_data.dict(), current_user.id)
     
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(
@@ -150,7 +172,11 @@ async def update_supplier(
 ):
     """Update a supplier (manager role required)"""
     edit_service = EditServiceClass(db)
-    result = edit_service.update_supplier(supplier_id, supplier_data.dict(exclude_unset=True))
+    result = edit_service.update_supplier(
+        supplier_id, 
+        supplier_data.dict(exclude_unset=True),
+        current_user.id
+    )
     
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(
@@ -168,7 +194,7 @@ async def delete_supplier(
 ):
     """Delete a supplier (manager role required)"""
     edit_service = EditServiceClass(db)
-    result = edit_service.delete_supplier(supplier_id)
+    result = edit_service.delete_supplier(supplier_id, current_user.id)
     
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(
@@ -178,16 +204,16 @@ async def delete_supplier(
     
     return result
 
-@router.get("/suppliers", response_model=List[Supplier])
-async def list_suppliers(
+# Sale endpoints
+@router.get("/sales", response_model=List[Sale])
+async def list_sales(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """Get all suppliers"""
-    suppliers = db.exec(select(Supplier)).all()
-    return suppliers
+    """Get all sales for the current user"""
+    edit_service = EditServiceClass(db)
+    return edit_service.get_sales(current_user.id)
 
-# Sale endpoints
 @router.post("/sales", status_code=status.HTTP_201_CREATED, response_model=Sale)
 async def create_sale(
     sale_data: SaleCreate,
@@ -196,7 +222,7 @@ async def create_sale(
 ):
     """Create a new sale record"""
     edit_service = EditServiceClass(db)
-    result = edit_service.create_sale(sale_data.dict())
+    result = edit_service.create_sale(sale_data.dict(), current_user.id)
     
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(
@@ -215,7 +241,11 @@ async def update_sale(
 ):
     """Update a sale record (manager role required)"""
     edit_service = EditServiceClass(db)
-    result = edit_service.update_sale(sale_id, sale_data.dict(exclude_unset=True))
+    result = edit_service.update_sale(
+        sale_id, 
+        sale_data.dict(exclude_unset=True),
+        current_user.id
+    )
     
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(
@@ -233,7 +263,7 @@ async def delete_sale(
 ):
     """Delete a sale record (manager role required)"""
     edit_service = EditServiceClass(db)
-    result = edit_service.delete_sale(sale_id)
+    result = edit_service.delete_sale(sale_id, current_user.id)
     
     if isinstance(result, dict) and "error" in result:
         raise HTTPException(
@@ -255,7 +285,8 @@ async def seed_data(
         default_supplier = Supplier(
             name="Default Supplier",
             contact_email="contact@supplier.com",
-            lead_time_days=7
+            lead_time_days=7,
+            user_id=current_user.id
         )
         db.add(default_supplier)
         db.commit()
