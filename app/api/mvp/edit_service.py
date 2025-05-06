@@ -6,6 +6,7 @@ from uuid import UUID
 from app.models.data_models.Product import Product
 from app.models.data_models.Sale import Sale
 from app.models.data_models.Supplier import Supplier
+from app.models.enums.AlertLevel import AlertLevel
 
 class MVPEditService:
     """Service for creating and modifying inventory data"""
@@ -31,6 +32,10 @@ class MVPEditService:
             
             # Create new product
             product = Product(**product_data)
+            
+            # Set initial alert level
+            self._update_product_alert_level(product)
+            
             self.db.add(product)
             self.db.commit()
             self.db.refresh(product)
@@ -57,6 +62,11 @@ class MVPEditService:
                 if key != "user_id":
                     setattr(product, key, value)
             
+            # Update alert level if inventory-related fields were changed
+            inventory_fields = {"on_hand", "reorder_point", "safety_stock"}
+            if any(field in product_data for field in inventory_fields):
+                self._update_product_alert_level(product)
+            
             self.db.add(product)
             self.db.commit()
             self.db.refresh(product)
@@ -64,6 +74,18 @@ class MVPEditService:
         except Exception as e:
             self.db.rollback()
             return {"error": str(e)}
+    
+    def _update_product_alert_level(self, product: Product) -> None:
+        """Update a product's alert level based on inventory levels"""
+        # Handle None safety_stock by using 0 as default
+        safety_stock = product.safety_stock if product.safety_stock is not None else 0
+        
+        if product.on_hand <= safety_stock:
+            product.alert_level = AlertLevel.RED
+        elif product.on_hand <= product.reorder_point:
+            product.alert_level = AlertLevel.YELLOW
+        else:
+            product.alert_level = None
     
     def delete_product(self, product_id: UUID, user_id: UUID) -> Dict[str, str]:
         """Delete a product"""
@@ -215,6 +237,10 @@ class MVPEditService:
             
             # Update product inventory
             product.on_hand -= quantity
+            
+            # Update alert level
+            self._update_product_alert_level(product)
+            
             self.db.add(product)
             
             self.db.commit()
@@ -256,6 +282,10 @@ class MVPEditService:
                 if product.on_hand < new_quantity:
                     return {"error": "Insufficient inventory"}
                 product.on_hand -= new_quantity
+                
+                # Update alert level
+                self._update_product_alert_level(product)
+                
                 self.db.add(product)
             
             # Update fields
@@ -292,6 +322,10 @@ class MVPEditService:
             
             if product:
                 product.on_hand += sale.quantity
+                
+                # Update alert level
+                self._update_product_alert_level(product)
+                
                 self.db.add(product)
             
             # Delete sale
