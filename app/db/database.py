@@ -5,6 +5,9 @@ from sqlalchemy.exc import SQLAlchemyError
 # Import all models through the centralized initialization
 import app.models.data_models
 
+# Import models to ensure they are registered with SQLModel metadata
+import app.models.data_models
+
 # Set up logging
 logger = logging.getLogger(__name__)
 

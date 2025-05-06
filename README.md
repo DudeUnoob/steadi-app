@@ -20,6 +20,75 @@ Steadi is an AI-powered inventory management system that helps small businesses 
 - 📝 **One-Click Purchase Orders** - Generate and send POs to suppliers with a single click
 - 📈 **Essential Analytics** - Track turnover rates, top-sellers, and days-of-stock with intuitive visualizations
 
+## Central SKU Repository
+
+The Central SKU Repository is a core component of Steadi's inventory management system. It provides a robust, relational database structure for storing and tracking all inventory-related data with a complete audit trail.
+
+### Key Features
+
+- **Complete Audit Trail**: Every inventory mutation is recorded in the inventory ledger with source attribution (Shopify, Square, Lightspeed, CSV, manual, etc.)
+- **SKU Normalization**: Canonical SKU storage ensures consistency across different sales channels and systems
+- **Relational Structure**: Fully normalized database design with proper relationships between products, suppliers, and transactions
+- **Search & Filter**: Fast, efficient searching and filtering capabilities for inventory management
+- **Idempotent Operations**: Safe, repeatable inventory operations that prevent data inconsistencies
+
+### API Endpoints
+
+#### Inventory Management
+
+- `GET /inventory` - Get paginated inventory with optional search
+- `GET /inventory/{sku}` - Get product details by SKU
+- `POST /inventory` - Create a new product
+- `PATCH /inventory/{sku}` - Update product details
+- `DELETE /inventory/{sku}` - Delete a product
+
+#### Inventory Operations
+
+- `POST /inventory/{sku}/update-quantity` - Update inventory quantity with audit trail
+- `GET /inventory/{sku}/ledger` - Get inventory audit trail for a product
+
+### Example API Usage
+
+#### Get all inventory items
+```bash
+curl -X GET "http://localhost:8000/inventory?search=shirt&page=1&limit=50" \
+  -H "Authorization: Bearer {your_access_token}" \
+  -H "X-Tenant-ID: {tenant_id}" \
+  -H "Content-Type: application/json"
+```
+
+#### Create a new product
+```bash
+curl -X POST "http://localhost:8000/inventory" \
+  -H "Authorization: Bearer {your_access_token}" \
+  -H "X-Tenant-ID: {tenant_id}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sku": "SHIRT-BLK-M",
+    "name": "Black T-Shirt",
+    "variant": "Medium",
+    "supplier_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+    "cost": 15.0,
+    "on_hand": 50,
+    "reorder_point": 10,
+    "safety_stock": 5,
+    "lead_time_days": 7
+  }'
+```
+
+#### Update inventory quantity
+```bash
+curl -X POST "http://localhost:8000/inventory/SHIRT-BLK-M/update-quantity" \
+  -H "Authorization: Bearer {your_access_token}" \
+  -H "X-Tenant-ID: {tenant_id}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "quantity_delta": -5,
+    "source": "sale",
+    "reference_id": "ORDER-12345"
+  }'
+```
+
 ## Getting Started
 
 ### Prerequisites

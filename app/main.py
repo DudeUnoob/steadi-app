@@ -1,10 +1,15 @@
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.database import init_db
+<<<<<<< HEAD
+from app.routers import auth_router, inventory_router
+from app.api.mvp.dashboard import router as dashboard_router
+=======
 from app.routers import auth as auth_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.edit import router as edit_router
 from app.routers.alerts import router as alerts_router
+>>>>>>> 845ba7252a2313f5c73814cf017aad057bcbb0a7
 import os
 from dotenv import load_dotenv
 
@@ -38,7 +43,12 @@ async def tenant_middleware(request: Request, call_next):
     return response
 
 # Include routers
+<<<<<<< HEAD
+app.include_router(auth_router)
+app.include_router(inventory_router)
+=======
 app.include_router(auth_router.router)
+>>>>>>> 845ba7252a2313f5c73814cf017aad057bcbb0a7
 app.include_router(dashboard_router)
 app.include_router(edit_router)
 app.include_router(alerts_router)

@@ -87,8 +87,8 @@ tzdata==2024.1
 ujson==5.10.0
 urllib3==2.2.3
 uuid==1.30
-uvicorn[standard]==0.27.0
-uvloop==0.21.0
+uvicorn==0.27.0
+uvloop==0.21.0; sys_platform != 'win32'  # Only install on non-Windows platforms
 watchfiles==1.0.5
 websockets==15.0.1
 Werkzeug==3.1.3
