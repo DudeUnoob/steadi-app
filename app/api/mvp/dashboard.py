@@ -3,6 +3,7 @@ from sqlmodel import Session, select, func
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 import random
+import re
 
 from app.models.data_models.Product import Product
 from app.models.data_models.Sale import Sale
@@ -76,18 +77,61 @@ class MVPDashboardService:
         # Get base inventory query
         query = select(Product)
         if search:
-            query = query.filter(
-                (Product.sku.ilike(f"%{search}%")) | 
-                (Product.name.ilike(f"%{search}%"))
-            )
+            # Special case handling for "Candle X" type searches, to avoid "Candle 1" matching "Candle 11", etc.
+            # Check if search is in format "Something X" where X is a number
+            pattern = r"^(.+)(\s+)(\d+)$"
+            match = re.match(pattern, search)
+            
+            if match:
+                # Extract the base name and number
+                base_name = match.group(1)
+                space = match.group(2) 
+                number = match.group(3)
+                
+                # Create a precise pattern: base_name + space + exact number + boundary
+                query = query.filter(
+                    (Product.sku == search) | 
+                    (Product.name == search) |
+                    # This specifically matches "Candle 1" but not "Candle 11", etc.
+                    (Product.name.ilike(f"{base_name}{space}{number}"))
+                )
+            else:
+                # Default search for non-numeric patterns
+                query = query.filter(
+                    (Product.sku == search) | 
+                    (Product.name == search) |
+                    # Also include pattern matches with space-aware boundaries
+                    (Product.name.ilike(f"{search} %")) |
+                    (Product.name.ilike(f"% {search} %")) |
+                    (Product.name.ilike(f"% {search}"))
+                )
         
         # Count total items
         count_query = select(func.count()).select_from(Product)
         if search:
-            count_query = count_query.where(
-                (Product.sku.ilike(f"%{search}%")) | 
-                (Product.name.ilike(f"%{search}%"))
-            )
+            # Same special case handling for count query
+            # Check if search is in format "Something X" where X is a number
+            pattern = r"^(.+)(\s+)(\d+)$"
+            match = re.match(pattern, search)
+            
+            if match:
+                base_name = match.group(1)
+                space = match.group(2)
+                number = match.group(3)
+                
+                count_query = count_query.where(
+                    (Product.sku == search) | 
+                    (Product.name == search) |
+                    (Product.name.ilike(f"{base_name}{space}{number}"))
+                )
+            else:
+                count_query = count_query.where(
+                    (Product.sku == search) | 
+                    (Product.name == search) |
+                    (Product.name.ilike(f"{search} %")) |
+                    (Product.name.ilike(f"% {search} %")) |
+                    (Product.name.ilike(f"% {search}"))
+                )
         total = self.db.exec(count_query).one()
         
         # Calculate pagination
