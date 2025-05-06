@@ -8,3 +8,7 @@
 
 .venv/
 venv/
+app/models/service_classes/__pycache__
+app/api/mvp/__pycache__
+app/routers/__pycache__
+app/__pycache__
