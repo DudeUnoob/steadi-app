@@ -14,11 +14,18 @@ class MVPEditService:
         self.db = db
     
     # Product management
-    def create_product(self, product_data: Dict[str, Any]) -> Product:
+    def create_product(self, product_data: Dict[str, Any], user_id: UUID) -> Product:
         """Create a new product"""
         try:
-            # Check if product with same SKU already exists
-            existing = self.db.exec(select(Product).where(Product.sku == product_data.get("sku"))).first()
+            # Add user_id to product data
+            product_data["user_id"] = user_id
+            
+            # Check if product with same SKU already exists for this user
+            existing = self.db.exec(select(Product).where(
+                (Product.sku == product_data.get("sku")) &
+                (Product.user_id == user_id)
+            )).first()
+            
             if existing:
                 return {"error": "Product with this SKU already exists"}
             
@@ -32,16 +39,23 @@ class MVPEditService:
             self.db.rollback()
             return {"error": str(e)}
     
-    def update_product(self, product_id: UUID, product_data: Dict[str, Any]) -> Product:
+    def update_product(self, product_id: UUID, product_data: Dict[str, Any], user_id: UUID) -> Product:
         """Update an existing product"""
         try:
-            product = self.db.get(Product, product_id)
+            # Find product and verify ownership
+            product = self.db.exec(select(Product).where(
+                (Product.id == product_id) & 
+                (Product.user_id == user_id)
+            )).first()
+            
             if not product:
-                return {"error": "Product not found"}
+                return {"error": "Product not found or you don't have permission to access it"}
             
             # Update fields
             for key, value in product_data.items():
-                setattr(product, key, value)
+                # Don't allow changing user_id
+                if key != "user_id":
+                    setattr(product, key, value)
             
             self.db.add(product)
             self.db.commit()
@@ -51,12 +65,17 @@ class MVPEditService:
             self.db.rollback()
             return {"error": str(e)}
     
-    def delete_product(self, product_id: UUID) -> Dict[str, str]:
+    def delete_product(self, product_id: UUID, user_id: UUID) -> Dict[str, str]:
         """Delete a product"""
         try:
-            product = self.db.get(Product, product_id)
+            # Find product and verify ownership
+            product = self.db.exec(select(Product).where(
+                (Product.id == product_id) & 
+                (Product.user_id == user_id)
+            )).first()
+            
             if not product:
-                return {"error": "Product not found"}
+                return {"error": "Product not found or you don't have permission to access it"}
             
             self.db.delete(product)
             self.db.commit()
@@ -65,13 +84,29 @@ class MVPEditService:
             self.db.rollback()
             return {"error": str(e)}
     
+    def get_products(self, user_id: UUID) -> List[Product]:
+        """Get all products for a user"""
+        try:
+            products = self.db.exec(select(Product).where(
+                Product.user_id == user_id
+            )).all()
+            return products
+        except Exception as e:
+            return {"error": str(e)}
+    
     # Supplier management
-    def create_supplier(self, supplier_data: Dict[str, Any]) -> Supplier:
+    def create_supplier(self, supplier_data: Dict[str, Any], user_id: UUID) -> Supplier:
         """Create a new supplier"""
         try:
-            # Check if supplier with same name already exists
+            # Add user_id to supplier data
+            supplier_data["user_id"] = user_id
+            
+            # Check if supplier with same name already exists for this user
             existing = self.db.exec(select(Supplier).where(
-                Supplier.name == supplier_data.get("name"))).first()
+                (Supplier.name == supplier_data.get("name")) &
+                (Supplier.user_id == user_id)
+            )).first()
+            
             if existing:
                 return {"error": "Supplier with this name already exists"}
             
@@ -85,16 +120,23 @@ class MVPEditService:
             self.db.rollback()
             return {"error": str(e)}
     
-    def update_supplier(self, supplier_id: UUID, supplier_data: Dict[str, Any]) -> Supplier:
+    def update_supplier(self, supplier_id: UUID, supplier_data: Dict[str, Any], user_id: UUID) -> Supplier:
         """Update an existing supplier"""
         try:
-            supplier = self.db.get(Supplier, supplier_id)
+            # Find supplier and verify ownership
+            supplier = self.db.exec(select(Supplier).where(
+                (Supplier.id == supplier_id) & 
+                (Supplier.user_id == user_id)
+            )).first()
+            
             if not supplier:
-                return {"error": "Supplier not found"}
+                return {"error": "Supplier not found or you don't have permission to access it"}
             
             # Update fields
             for key, value in supplier_data.items():
-                setattr(supplier, key, value)
+                # Don't allow changing user_id
+                if key != "user_id":
+                    setattr(supplier, key, value)
             
             self.db.add(supplier)
             self.db.commit()
@@ -104,16 +146,24 @@ class MVPEditService:
             self.db.rollback()
             return {"error": str(e)}
     
-    def delete_supplier(self, supplier_id: UUID) -> Dict[str, str]:
+    def delete_supplier(self, supplier_id: UUID, user_id: UUID) -> Dict[str, str]:
         """Delete a supplier"""
         try:
-            supplier = self.db.get(Supplier, supplier_id)
+            # Find supplier and verify ownership
+            supplier = self.db.exec(select(Supplier).where(
+                (Supplier.id == supplier_id) & 
+                (Supplier.user_id == user_id)
+            )).first()
+            
             if not supplier:
-                return {"error": "Supplier not found"}
+                return {"error": "Supplier not found or you don't have permission to access it"}
             
             # Check if supplier has associated products
             products = self.db.exec(select(Product).where(
-                Product.supplier_id == supplier_id)).all()
+                (Product.supplier_id == supplier_id) &
+                (Product.user_id == user_id)
+            )).all()
+            
             if products:
                 return {"error": "Cannot delete supplier with associated products"}
             
@@ -124,15 +174,32 @@ class MVPEditService:
             self.db.rollback()
             return {"error": str(e)}
     
+    def get_suppliers(self, user_id: UUID) -> List[Supplier]:
+        """Get all suppliers for a user"""
+        try:
+            suppliers = self.db.exec(select(Supplier).where(
+                Supplier.user_id == user_id
+            )).all()
+            return suppliers
+        except Exception as e:
+            return {"error": str(e)}
+    
     # Sale management
-    def create_sale(self, sale_data: Dict[str, Any]) -> Sale:
+    def create_sale(self, sale_data: Dict[str, Any], user_id: UUID) -> Sale:
         """Create a new sale record"""
         try:
-            # Ensure product exists
+            # Add user_id to sale data
+            sale_data["user_id"] = user_id
+            
+            # Ensure product exists and belongs to user
             product_id = sale_data.get("product_id")
-            product = self.db.get(Product, product_id)
+            product = self.db.exec(select(Product).where(
+                (Product.id == product_id) &
+                (Product.user_id == user_id)
+            )).first()
+            
             if not product:
-                return {"error": "Product not found"}
+                return {"error": "Product not found or you don't have permission to access it"}
             
             # Check if we have enough inventory
             quantity = sale_data.get("quantity", 1)
@@ -157,19 +224,30 @@ class MVPEditService:
             self.db.rollback()
             return {"error": str(e)}
     
-    def update_sale(self, sale_id: UUID, sale_data: Dict[str, Any]) -> Sale:
+    def update_sale(self, sale_id: UUID, sale_data: Dict[str, Any], user_id: UUID) -> Sale:
         """Update an existing sale"""
         try:
-            sale = self.db.get(Sale, sale_id)
+            # Find sale and verify ownership
+            sale = self.db.exec(select(Sale).where(
+                (Sale.id == sale_id) & 
+                (Sale.user_id == user_id)
+            )).first()
+            
             if not sale:
-                return {"error": "Sale not found"}
+                return {"error": "Sale not found or you don't have permission to access it"}
             
             old_quantity = sale.quantity
             new_quantity = sale_data.get("quantity", old_quantity)
             
             # If quantity changed, update product inventory
             if "quantity" in sale_data and old_quantity != new_quantity:
-                product = self.db.get(Product, sale.product_id)
+                product = self.db.exec(select(Product).where(
+                    (Product.id == sale.product_id) &
+                    (Product.user_id == user_id)
+                )).first()
+                
+                if not product:
+                    return {"error": "Associated product not found or you don't have permission to access it"}
                 
                 # Restore original inventory
                 product.on_hand += old_quantity
@@ -182,7 +260,9 @@ class MVPEditService:
             
             # Update fields
             for key, value in sale_data.items():
-                setattr(sale, key, value)
+                # Don't allow changing user_id
+                if key != "user_id":
+                    setattr(sale, key, value)
             
             self.db.add(sale)
             self.db.commit()
@@ -192,17 +272,27 @@ class MVPEditService:
             self.db.rollback()
             return {"error": str(e)}
     
-    def delete_sale(self, sale_id: UUID) -> Dict[str, str]:
+    def delete_sale(self, sale_id: UUID, user_id: UUID) -> Dict[str, str]:
         """Delete a sale and restore inventory"""
         try:
-            sale = self.db.get(Sale, sale_id)
+            # Find sale and verify ownership
+            sale = self.db.exec(select(Sale).where(
+                (Sale.id == sale_id) & 
+                (Sale.user_id == user_id)
+            )).first()
+            
             if not sale:
-                return {"error": "Sale not found"}
+                return {"error": "Sale not found or you don't have permission to access it"}
             
             # Restore inventory
-            product = self.db.get(Product, sale.product_id)
-            product.on_hand += sale.quantity
-            self.db.add(product)
+            product = self.db.exec(select(Product).where(
+                (Product.id == sale.product_id) &
+                (Product.user_id == user_id)
+            )).first()
+            
+            if product:
+                product.on_hand += sale.quantity
+                self.db.add(product)
             
             # Delete sale
             self.db.delete(sale)
@@ -210,4 +300,14 @@ class MVPEditService:
             return {"message": "Sale deleted successfully"}
         except Exception as e:
             self.db.rollback()
+            return {"error": str(e)}
+    
+    def get_sales(self, user_id: UUID) -> List[Sale]:
+        """Get all sales for a user"""
+        try:
+            sales = self.db.exec(select(Sale).where(
+                Sale.user_id == user_id
+            )).all()
+            return sales
+        except Exception as e:
             return {"error": str(e)} 

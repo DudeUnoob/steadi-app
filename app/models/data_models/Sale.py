@@ -7,10 +7,14 @@ if TYPE_CHECKING:
     from app.models.data_models.Product import Product
 
 class Sale(SQLModel, table=True):
-    """Record of product sales for analytics"""
-    id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
-    product_id: UUID = Field(foreign_key="product.id", index=True)
-    quantity: int = Field(gt=0)
-    sale_date: datetime = Field(default_factory=datetime.utcnow, index=True)
+    """Sale record representing inventory transactions"""
+    
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    product_id: UUID = Field(foreign_key="product.id")
+    quantity: int = 1
+    sale_date: datetime = Field(default_factory=datetime.utcnow)
+    notes: Optional[str] = None
+    user_id: UUID = Field(foreign_key="user.id")
+    
     # Relationships
     product: "Product" = Relationship(back_populates="sales")
