@@ -20,11 +20,16 @@ def get_session():
         session.close()
 
 
-def update_inventory(sku: str, quantity_delta: int, source: str, reference_id: Optional[str] = None) -> Product:
+def update_inventory(sku: str, quantity_delta: int, source: str, reference_id: Optional[str] = None, user_id: UUID = None) -> Product:
     """Update inventory levels with audit trail"""
     with next(get_session()) as session:
         # Get the product by SKU
         statement = select(Product).where(Product.sku == sku)
+        
+        # Add user_id filter if provided for tenant isolation
+        if user_id:
+            statement = statement.where(Product.user_id == user_id)
+            
         result = session.execute(statement)
         product = result.scalar_one_or_none()
         
@@ -53,10 +58,15 @@ def update_inventory(sku: str, quantity_delta: int, source: str, reference_id: O
         return product
 
 
-def get_inventory(search: Optional[str] = None, page: int = 1, limit: int = 50) -> Dict[str, Union[List[Product], int]]:
+def get_inventory(search: Optional[str] = None, page: int = 1, limit: int = 50, user_id: UUID = None) -> Dict[str, Union[List[Product], int]]:
     """Get paginated inventory with search"""
     with next(get_session()) as session:
         statement = select(Product)
+        
+        # Add user_id filter for data isolation
+        if user_id:
+            statement = statement.where(Product.user_id == user_id)
+            
         if search:
             search_pattern = f"%{search}%"
             statement = statement.where(
@@ -65,7 +75,12 @@ def get_inventory(search: Optional[str] = None, page: int = 1, limit: int = 50) 
         
         # Calculate pagination
         offset = (page - 1) * limit
+        
+        # Total count should also respect user_id filter
         total_statement = select(Product)
+        if user_id:
+            total_statement = total_statement.where(Product.user_id == user_id)
+            
         total = len(session.execute(total_statement).scalars().all())
         statement = statement.offset(offset).limit(limit)
         
@@ -73,9 +88,19 @@ def get_inventory(search: Optional[str] = None, page: int = 1, limit: int = 50) 
         return {"items": results, "total": total}
 
 
-def get_ledger(product_id: UUID, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> List[InventoryLedger]:
+def get_ledger(product_id: UUID, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, user_id: UUID = None) -> List[InventoryLedger]:
     """Get inventory audit trail for a product"""
     with next(get_session()) as session:
+        # First verify the product belongs to the user
+        if user_id:
+            product = session.execute(select(Product).where(
+                (Product.id == product_id) & (Product.user_id == user_id)
+            )).scalar_one_or_none()
+            
+            if not product:
+                # User doesn't own this product or it doesn't exist
+                return []
+        
         statement = select(InventoryLedger).where(InventoryLedger.product_id == product_id)
         if start_date:
             statement = statement.where(InventoryLedger.timestamp >= start_date)
