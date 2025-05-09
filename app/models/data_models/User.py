@@ -11,7 +11,8 @@ class User(SQLModel, table=True):
     """User account with authentication and authorization"""
     id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
     email: str = Field(unique=True, index=True)
-    password_hash: str
+    password_hash: Optional[str] = None
+    supabase_id: Optional[str] = Field(default=None, unique=True, index=True)
     role: UserRole = Field(default=UserRole.STAFF)
     created_at: datetime = Field(default_factory=datetime.utcnow)
     # Relationships

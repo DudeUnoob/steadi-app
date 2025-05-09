@@ -1,12 +1,18 @@
 import { Routes, Route, Link, useNavigate } from 'react-router-dom'
 import './index.css'
 import Dashboard from './Dashboard'
+import { AuthProvider } from './lib/AuthContext'
+import { AuthPage } from './components/auth/AuthPage'
+import { AuthCallback } from './components/auth/AuthCallback'
+import { ProtectedRoute } from './components/auth/ProtectedRoute'
+import { SyncBackend } from './components/auth/SyncBackend'
+import { ResetPassword } from './components/auth/ResetPassword'
 
 function LandingPage() {
   const navigate = useNavigate()
 
   const handleGetStarted = () => {
-    navigate('/dashboard')
+    navigate('/auth')
   }
 
   return (
@@ -59,10 +65,23 @@ function LandingPage() {
 
 function App() {
   return (
-    <Routes>
-      <Route path="/" element={<LandingPage />} />
-      <Route path="/dashboard" element={<Dashboard />} />
-    </Routes>
+    <AuthProvider>
+      {/* Synchronize Supabase auth with backend */}
+      <SyncBackend />
+      
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/auth" element={<AuthPage />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/auth/reset-password" element={<ResetPassword />} />
+        
+        {/* Protected routes */}
+        <Route element={<ProtectedRoute />}>
+          <Route path="/dashboard" element={<Dashboard />} />
+          {/* Add other protected routes here */}
+        </Route>
+      </Routes>
+    </AuthProvider>
   )
 }
 

@@ -11,6 +11,7 @@ class UserRead(SQLModel):
     email: str
     role: UserRole
     created_at: datetime
+    supabase_id: Optional[str] = None
     
     class Config:
         json_encoders = {
@@ -21,8 +22,9 @@ class UserRead(SQLModel):
 # User creation schema
 class UserCreate(SQLModel):
     email: str
-    password: str
+    password: Optional[str] = None
     role: Optional[UserRole] = UserRole.STAFF
+    supabase_id: Optional[str] = None
     
     @validator('email')
     def email_must_contain_at(cls, v):
@@ -32,7 +34,7 @@ class UserCreate(SQLModel):
     
     @validator('password')
     def password_min_length(cls, v):
-        if len(v) < 8:
+        if v is not None and len(v) < 8:
             raise ValueError('password must be at least 8 characters')
         return v
 
@@ -40,4 +42,10 @@ class UserCreate(SQLModel):
 class Token(SQLModel):
     access_token: str
     refresh_token: str
-    token_type: str = "bearer" 
+    token_type: str = "bearer"
+
+# Schema for Supabase users
+class SupabaseUserCreate(SQLModel):
+    email: str
+    supabase_id: str
+    role: Optional[UserRole] = UserRole.STAFF 
