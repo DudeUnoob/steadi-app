@@ -5,7 +5,7 @@ from app.db.database import engine
 from dotenv import load_dotenv
 import time
 
-# Load environment variables
+
 load_dotenv()
 
 def add_supabase_id_column():
@@ -15,7 +15,7 @@ def add_supabase_id_column():
     with Session(engine) as session:
         print("Adding supabase_id column to user table...")
         
-        # Check if the column already exists
+       
         check_column_sql = text("""
         SELECT column_name 
         FROM information_schema.columns 
@@ -27,7 +27,7 @@ def add_supabase_id_column():
             print("Column supabase_id already exists in user table. No action needed.")
             return
         
-        # Add the supabase_id column to the user table
+        
         add_column_sql = text("""
         ALTER TABLE "user" 
         ADD COLUMN supabase_id VARCHAR DEFAULT NULL UNIQUE;

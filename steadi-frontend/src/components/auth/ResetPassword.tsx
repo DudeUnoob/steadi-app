@@ -11,23 +11,19 @@ export function ResetPassword() {
   const [countdown, setCountdown] = useState(5);
   const { updatePassword, user } = useAuth();
 
-  // If already authenticated and not resetting password, redirect to dashboard
   if (user && !localStorage.getItem('sb-recovery-token')) {
     return <Navigate to="/dashboard" replace />;
   }
 
-  // Handle password update
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
-    // Validate passwords match
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
     }
 
-    // Validate password strength
     if (password.length < 8) {
       setError('Password must be at least 8 characters');
       return;
@@ -39,10 +35,8 @@ export function ResetPassword() {
       const { error } = await updatePassword(password);
       if (error) throw error;
       
-      // Clear recovery token
       localStorage.removeItem('sb-recovery-token');
       
-      // Show success message and start countdown
       setSuccess(true);
       startCountdown();
     } catch (error) {
@@ -52,7 +46,6 @@ export function ResetPassword() {
     }
   };
 
-  // Countdown to dashboard redirect
   const startCountdown = () => {
     const timer = setInterval(() => {
       setCountdown((prev) => {
@@ -65,21 +58,19 @@ export function ResetPassword() {
     }, 1000);
   };
 
-  // Redirect after success
   if (success && countdown === 0) {
     return <Navigate to="/dashboard" replace />;
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-r from-[#ff5757] to-[#8c52ff] flex flex-col">
-      {/* Navigation */}
+      
       <nav className="container mx-auto px-6 py-4 flex justify-between items-center">
         <div className="flex items-center">
           <h1 className="text-4xl font-light text-black font-['Poppins']">Steadi.</h1>
         </div>
       </nav>
 
-      {/* Reset Password Container */}
       <div className="flex-grow flex flex-col justify-center items-center p-6">
         <div className="w-full max-w-md space-y-6 p-8 bg-white/10 backdrop-blur-sm rounded-lg border border-black/20">
           <div className="text-center">

@@ -4,7 +4,7 @@ from sqlalchemy import text
 from app.db.database import engine
 from dotenv import load_dotenv
 
-# Load environment variables
+
 load_dotenv()
 
 def modify_password_constraint():
@@ -14,7 +14,7 @@ def modify_password_constraint():
     with Session(engine) as session:
         print("Modifying password_hash column to allow NULL values...")
         
-        # Alter the password_hash column to allow NULL values
+        
         alter_column_sql = text("""
         ALTER TABLE "user" 
         ALTER COLUMN password_hash DROP NOT NULL;

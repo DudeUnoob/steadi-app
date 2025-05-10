@@ -23,10 +23,8 @@ def get_session():
 def update_inventory(sku: str, quantity_delta: int, source: str, reference_id: Optional[str] = None, user_id: UUID = None) -> Product:
     """Update inventory levels with audit trail"""
     with next(get_session()) as session:
-        # Get the product by SKU
         statement = select(Product).where(Product.sku == sku)
         
-        # Add user_id filter if provided for tenant isolation
         if user_id:
             statement = statement.where(Product.user_id == user_id)
             
@@ -36,13 +34,11 @@ def update_inventory(sku: str, quantity_delta: int, source: str, reference_id: O
         if not product:
             raise ValueError(f"Product with SKU {sku} not found")
         
-        # Update the on_hand quantity
         new_quantity = product.on_hand + quantity_delta
         if new_quantity < 0:
             raise ValueError(f"Inventory for SKU {sku} cannot be negative")
         product.on_hand = new_quantity
         
-        # Create a ledger entry for audit trail
         ledger_entry = InventoryLedger(
             id=uuid4(),
             product_id=product.id,
@@ -63,7 +59,6 @@ def get_inventory(search: Optional[str] = None, page: int = 1, limit: int = 50, 
     with next(get_session()) as session:
         statement = select(Product)
         
-        # Add user_id filter for data isolation
         if user_id:
             statement = statement.where(Product.user_id == user_id)
             
@@ -73,10 +68,8 @@ def get_inventory(search: Optional[str] = None, page: int = 1, limit: int = 50, 
                 (Product.sku.ilike(search_pattern)) | (Product.name.ilike(search_pattern))
             )
         
-        # Calculate pagination
         offset = (page - 1) * limit
         
-        # Total count should also respect user_id filter
         total_statement = select(Product)
         if user_id:
             total_statement = total_statement.where(Product.user_id == user_id)
@@ -91,14 +84,12 @@ def get_inventory(search: Optional[str] = None, page: int = 1, limit: int = 50, 
 def get_ledger(product_id: UUID, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, user_id: UUID = None) -> List[InventoryLedger]:
     """Get inventory audit trail for a product"""
     with next(get_session()) as session:
-        # First verify the product belongs to the user
         if user_id:
             product = session.execute(select(Product).where(
                 (Product.id == product_id) & (Product.user_id == user_id)
             )).scalar_one_or_none()
             
             if not product:
-                # User doesn't own this product or it doesn't exist
                 return []
         
         statement = select(InventoryLedger).where(InventoryLedger.product_id == product_id)

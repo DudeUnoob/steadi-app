@@ -11,15 +11,15 @@ from app.models.enums.UserRole import UserRole
 
 import os
 
-# Get environment variables
-SECRET_KEY = os.getenv("JWT_SECRET", "supersecret")
-ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
-# Password hashing context
+SECRET_KEY = os.getenv("JWT_SECRET", )
+ALGORITHM = os.getenv("ALGORITHM", )
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", ))
+
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-# OAuth2 scheme for token extraction
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 def verify_password(plain_password, hashed_password):
@@ -65,7 +65,7 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
         if user_id is None:
             raise credentials_exception
             
-        # Get user from database
+        
         user = db.exec(select(User).where(User.id == user_id)).first()
         if user is None:
             raise credentials_exception
@@ -78,7 +78,7 @@ def get_current_active_user(current_user: User = Depends(get_current_user)):
     """Dependency to ensure user is active"""
     return current_user
 
-# Role-based access control dependencies
+
 def get_owner_user(current_user: User = Depends(get_current_user)):
     """Ensure user has OWNER role"""
     if current_user.role != UserRole.OWNER:

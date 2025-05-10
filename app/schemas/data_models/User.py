@@ -5,7 +5,7 @@ from enum import Enum, auto
 from sqlmodel import Field, SQLModel, Relationship
 from pydantic import validator
 from app.models.enums.UserRole import UserRole
-# User schema for API responses (without password)
+
 class UserRead(SQLModel):
     id: UUID
     email: str
@@ -19,7 +19,6 @@ class UserRead(SQLModel):
             UserRole: lambda v: v.value
         }
 
-# User creation schema
 class UserCreate(SQLModel):
     email: str
     password: Optional[str] = None
@@ -38,14 +37,12 @@ class UserCreate(SQLModel):
             raise ValueError('password must be at least 8 characters')
         return v
 
-# Token schema
 class Token(SQLModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
 
-# Schema for Supabase users
 class SupabaseUserCreate(SQLModel):
     email: str
     supabase_id: str
-    role: Optional[UserRole] = UserRole.STAFF 
+    role: Optional[UserRole] = UserRole.STAFF

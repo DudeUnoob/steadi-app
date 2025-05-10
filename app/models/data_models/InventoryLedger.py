@@ -15,5 +15,5 @@ class InventoryLedger(SQLModel, table=True):
     source: str = Field(index=True)  # shopify, square, lightspeed, csv, po_receive, manual
     reference_id: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
-    # Relationships
+   
     product: "Product" = Relationship(back_populates="ledger_entries")

@@ -8,21 +8,18 @@ export function AuthPage() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
   const { user, loading } = useAuth();
 
-  // If the user is already logged in, redirect to dashboard
   if (user && !loading) {
     return <Navigate to="/dashboard" replace />;
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-r from-[#ff5757] to-[#8c52ff] flex flex-col">
-      {/* Navigation */}
       <nav className="container mx-auto px-6 py-4 flex justify-between items-center">
         <div className="flex items-center">
           <h1 className="text-4xl font-light text-black font-['Poppins']">Steadi.</h1>
         </div>
       </nav>
 
-      {/* Auth Container */}
       <div className="flex-grow flex flex-col justify-center items-center p-6">
         {mode === 'login' ? <LoginForm /> : <SignUpForm />}
 
