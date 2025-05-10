@@ -16,11 +16,6 @@ function LandingPage() {
         <div className="flex items-center">
           <h1 className="text-4xl font-light text-black font-['Poppins']">Steadi.</h1>
         </div>
-        <div className="flex space-x-10">
-          <a href="#features" className="text-black font-['Poppins'] font-medium">Features</a>
-          <a href="#solutions" className="text-black font-['Poppins'] font-medium">Solutions</a>
-          <a href="#about" className="text-black font-['Poppins'] font-medium">About</a>
-        </div>
         <div>
           <button 
             onClick={handleGetStarted}
