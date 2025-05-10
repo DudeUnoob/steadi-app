@@ -34,7 +34,7 @@ function Dashboard() {
   return (
     <div className="min-h-screen bg-gradient-to-r from-[#ff5757] to-[#8c52ff] flex">
       {/* Custom Sidebar */}
-      <div className="fixed left-0 top-0 bottom-0 w-64 bg-[#ff5757]/70 h-full shadow-xl z-10">
+      <div className="fixed left-0 top-0 bottom-0 w-64 bg-black/40 h-full shadow-xl z-10">
         <div className="p-6">
           <Link to="/" className="text-3xl font-light text-black font-['Poppins']">Steadi.</Link>
         </div>
@@ -61,12 +61,7 @@ function Dashboard() {
         {/* Header */}
         <header className="px-6 py-4 flex justify-between items-center">
           <div className="flex-1"></div>
-          <div className="flex space-x-10">
-            <a href="#features" className="text-black font-['Poppins'] font-medium">Features</a>
-            <a href="#solutions" className="text-black font-['Poppins'] font-medium">Solutions</a>
-            <a href="#about" className="text-black font-['Poppins'] font-medium">About</a>
-          </div>
-          <div className="flex items-center gap-4">
+          <div>
             <span className="bg-black text-white px-6 py-3 rounded-full font-['Poppins'] font-medium">
               Dashboard
             </span>
