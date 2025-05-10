@@ -16,15 +16,15 @@ from app.routers.auth import get_current_user, get_owner_user
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
-# Response model for inventory items
+
 class InventoryItemResponse(BaseModel):
     sku: str
     name: str
     on_hand: int
     reorder_point: int
-    badge: Optional[str]  # RED, YELLOW, or None
-    color: str  # Hex color code for visual representation
-    sales_trend: List[float]  # Last 7 days sales data
+    badge: Optional[str]  
+    color: str 
+    sales_trend: List[float]  
     days_of_stock: float
 
 
@@ -41,7 +41,6 @@ async def get_inventory_dashboard(
     Returns items:[{sku, name, on_hand, reorder_point, badge, color}]
     NFR: Initial load ≤ 200ms, search filter updates ≤ 100ms
     """
-    # Use the dashboard service to retrieve data
     dashboard_service = DashboardService(db)
     return dashboard_service.get_inventory_dashboard(
         search=search,

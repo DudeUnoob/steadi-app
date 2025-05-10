@@ -15,13 +15,11 @@ export function SignUpForm() {
     setError(null);
     setVerificationSent(false);
     
-    // Validate passwords match
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
     }
 
-    // Validate password strength
     if (password.length < 8) {
       setError('Password must be at least 8 characters');
       return;
@@ -36,7 +34,6 @@ export function SignUpForm() {
         throw error;
       }
       
-      // Check if user needs to confirm email
       if (needsEmailVerification) {
         setVerificationSent(true);
       }
@@ -45,7 +42,6 @@ export function SignUpForm() {
         ? error.message 
         : 'Failed to sign up';
       
-      // Handle specific error cases with user-friendly messages
       if (errorMessage.includes('already registered')) {
         setError('This email is already registered. Please sign in instead.');
       } else if (errorMessage.includes('valid email')) {
@@ -69,7 +65,6 @@ export function SignUpForm() {
     }
   };
 
-  // If email verification is sent, show a different view
   if (verificationSent) {
     return (
       <div className="w-full max-w-md space-y-6 p-8 bg-white/10 backdrop-blur-sm rounded-lg border border-black/20">

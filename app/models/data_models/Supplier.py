@@ -17,7 +17,7 @@ class Supplier(SQLModel, table=True):
     notes: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     user_id: UUID = Field(foreign_key="user.id")
-    # Relationships
+    
     products: List["Product"] = Relationship(back_populates="supplier")
     purchase_orders: List["PurchaseOrder"] = Relationship(back_populates="supplier")
 

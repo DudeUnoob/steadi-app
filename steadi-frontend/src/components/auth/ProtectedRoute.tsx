@@ -4,7 +4,6 @@ import { useAuth } from '../../lib/AuthContext';
 export function ProtectedRoute() {
   const { user, loading } = useAuth();
 
-  // Show loading indicator while checking authentication
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-r from-[#ff5757] to-[#8c52ff] flex justify-center items-center">
@@ -13,11 +12,9 @@ export function ProtectedRoute() {
     );
   }
 
-  // Redirect to auth page if not logged in
   if (!user) {
     return <Navigate to="/auth" replace />;
   }
 
-  // Render child routes if authenticated
   return <Outlet />;
 } 

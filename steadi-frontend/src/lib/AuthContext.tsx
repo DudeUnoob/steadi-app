@@ -3,29 +3,40 @@ import type { ReactNode } from 'react';
 import type { Session, User, AuthError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
+// Base URL for API calls
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 // Define AuthStatus type for better state management
 type AuthStatus = 'LOADING' | 'AUTHENTICATED' | 'UNAUTHENTICATED' | 'EMAIL_VERIFICATION_NEEDED';
+
+// Generic type for auth responses
+type AuthResponseType = {
+  data: any;
+  error: AuthError | null;
+};
 
 type AuthContextType = {
   session: Session | null;
   user: User | null;
   status: AuthStatus;
-  signIn: (email: string, password: string) => Promise<{
-    error: AuthError | null;
-    data: { session: Session | null; user: User | null } | null;
-  }>;
+  signIn: (email: string, password: string) => Promise<AuthResponseType>;
   signInWithGoogle: () => Promise<void>;
-  signUp: (email: string, password: string) => Promise<{
-    error: AuthError | null;
-    data: { session: Session | null; user: User | null } | null;
-    needsEmailVerification: boolean;
-  }>;
+  signUp: (email: string, password: string) => Promise<AuthResponseType & { needsEmailVerification?: boolean }>;
   signOut: () => Promise<void>;
-  resetPassword: (email: string) => Promise<{ error: AuthError | null }>;
-  updatePassword: (password: string) => Promise<{ error: AuthError | null }>;
+  resetPassword: (email: string) => Promise<AuthResponseType>;
+  updatePassword: (password: string) => Promise<AuthResponseType>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Define useAuth hook at the top level to make it compatible with Fast Refresh
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
@@ -106,11 +117,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setStatus('UNAUTHENTICATED');
-    
-    // Clear any cached sync status
-    localStorage.removeItem('supabase_sync_status');
+    try {
+      // Notify backend about logout
+      if (session?.access_token) {
+        try {
+          await fetch(`${API_URL}/supabase-auth/logout`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            }
+          });
+          console.log('Backend notified about logout');
+        } catch (error) {
+          // Log error but continue with logout process
+          console.error('Failed to notify backend about logout:', error);
+        }
+      }
+
+      // Sign out from Supabase
+      await supabase.auth.signOut();
+      setStatus('UNAUTHENTICATED');
+      
+      // Clear any cached sync status
+      localStorage.removeItem('supabase_sync_status');
+    } catch (error) {
+      console.error('Error during sign out:', error);
+      // Still set status to unauthenticated even if there was an error
+      setStatus('UNAUTHENTICATED');
+    }
   };
   
   const resetPassword = async (email: string) => {
@@ -138,12 +173,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
-}
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
 } 

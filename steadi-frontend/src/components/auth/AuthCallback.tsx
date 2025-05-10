@@ -8,30 +8,28 @@ export function AuthCallback() {
   const location = useLocation();
 
   useEffect(() => {
-    // Process the OAuth callback or email link
+   
     const handleCallback = async () => {
       try {
         setLoading(true);
         
-        // Check if this is a password reset callback
+       
         const isPasswordReset = location.hash.includes('type=recovery');
         
-        // Check if this is an email verification callback
         const isEmailVerification = location.hash.includes('type=signup');
         
         if (isPasswordReset) {
-          // Extract token from URL
+         
           const accessToken = new URLSearchParams(location.hash.substring(1)).get('access_token');
           if (!accessToken) {
             throw new Error('No access token found in URL');
           }
           
-          // Store the token so we can use it on the password reset page
           localStorage.setItem('sb-recovery-token', accessToken);
           
-          // Navigate to the reset password page will happen via the redirect after this completes
+         
         } else {
-          // Handle regular sign-in callback (OAuth or email verification)
+         
           const { error } = await supabase.auth.getSession();
           if (error) {
             throw error;
@@ -49,7 +47,7 @@ export function AuthCallback() {
     handleCallback();
   }, [location]);
 
-  // Show loading indicator
+  
   if (loading) {
     return (
       <div className="min-h-screen bg-gradient-to-r from-[#ff5757] to-[#8c52ff] flex justify-center items-center">
@@ -61,7 +59,7 @@ export function AuthCallback() {
     );
   }
 
-  // Show error if something went wrong
+ 
   if (error) {
     return (
       <div className="min-h-screen bg-gradient-to-r from-[#ff5757] to-[#8c52ff] flex flex-col justify-center items-center p-6">
@@ -79,11 +77,11 @@ export function AuthCallback() {
     );
   }
 
-  // Check if this is a password reset
+ 
   if (location.hash.includes('type=recovery')) {
     return <Navigate to="/auth/reset-password" replace />;
   }
 
-  // Redirect to dashboard on success
+ 
   return <Navigate to="/dashboard" replace />;
 } 

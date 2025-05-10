@@ -2,33 +2,33 @@ import os
 import logging
 from sqlmodel import create_engine, Session, SQLModel
 from sqlalchemy.exc import SQLAlchemyError
-# Import all models through the centralized initialization
+
 import app.models.data_models
 
-# Import models to ensure they are registered with SQLModel metadata
+
 import app.models.data_models
 
-# Set up logging
+
 logger = logging.getLogger(__name__)
 
-# Get database URL from environment variables
+
 DATABASE_URL = os.getenv(
     "DATABASE_URL", 
-    "postgresql://neondb_owner:npg_fJaKY45kiMbh@ep-red-butterfly-a4516s6r-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require"
+    
 )
 
-# Create SQLAlchemy engine with connection pooling configuration
+
 engine = create_engine(
     DATABASE_URL, 
     echo=False,
-    pool_pre_ping=True,  # Test connections before using them
-    pool_recycle=300,    # Recycle connections every 5 minutes
-    pool_size=5,         # Maximum pool size
-    max_overflow=10      # Allow up to 10 extra connections
+    pool_pre_ping=True,  
+    pool_recycle=300,    
+    pool_size=5,         
+    max_overflow=10      
 )
 
 def get_db():
-    """Database session dependency"""
+    """Database session"""
     db = Session(engine)
     try:
         yield db

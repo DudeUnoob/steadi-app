@@ -18,7 +18,6 @@ export function LoginForm() {
     try {
       const { error } = await signIn(email, password);
       if (error) {
-        // Handle specific error cases with user-friendly messages
         const errorMessage = error.message;
         
         if (errorMessage.includes('Invalid login credentials')) {
@@ -66,7 +65,6 @@ export function LoginForm() {
     }
   };
   
-  // Show password reset form
   if (forgotPassword) {
     return (
       <div className="w-full max-w-md space-y-6 p-8 bg-white/10 backdrop-blur-sm rounded-lg border border-black/20">

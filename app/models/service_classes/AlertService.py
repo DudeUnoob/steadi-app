@@ -16,16 +16,13 @@ class AlertService:
         self.db = db
     
     def update_product_alert_levels(self, user_id: UUID) -> Dict[str, int]:
-        """
-        Update alert levels for all products belonging to a user
-        Returns counts of products at each alert level
-        """
-        # Get all products for the user
+       
+        
         products = self.db.exec(
             select(Product).where(Product.user_id == user_id)
         ).all()
         
-        # Track counts for reporting
+       
         alert_counts = {
             "red": 0,
             "yellow": 0,
@@ -33,11 +30,11 @@ class AlertService:
             "total": len(products)
         }
         
-        # Process each product
+        
         for product in products:
             old_alert_level = product.alert_level
             
-            # Calculate new alert level
+            
             if product.on_hand <= product.safety_stock:
                 new_alert_level = AlertLevel.RED
                 alert_counts["red"] += 1
@@ -48,12 +45,12 @@ class AlertService:
                 new_alert_level = None
                 alert_counts["normal"] += 1
             
-            # If alert level changed, update product and create notification
+           
             if old_alert_level != new_alert_level:
                 product.alert_level = new_alert_level
                 self.db.add(product)
                 
-                # Only create notifications for concerning alert levels
+                
                 if new_alert_level in [AlertLevel.RED, AlertLevel.YELLOW]:
                     self._create_reorder_notification(product, user_id)
         
@@ -62,20 +59,20 @@ class AlertService:
     
     def _create_reorder_notification(self, product: Product, user_id: UUID) -> None:
         """Create a notification for a product that needs reordering"""
-        # Get supplier info if available
+        
         supplier_name = "Unknown Supplier"
         if product.supplier_id:
             supplier = self.db.get(Supplier, product.supplier_id)
             if supplier:
                 supplier_name = supplier.name
         
-        # Create notification message based on alert level
+        
         if product.alert_level == AlertLevel.RED:
             message = f"URGENT: {product.name} (SKU: {product.sku}) is below safety stock level! Current stock: {product.on_hand}"
-        else:  # YELLOW
+        else: 
             message = f"{product.name} (SKU: {product.sku}) has reached reorder point. Current stock: {product.on_hand}"
         
-        # Create notification object
+        
         notification = Notification(
             user_id=user_id,
             channel=NotificationChannel.IN_APP,
@@ -97,10 +94,10 @@ class AlertService:
     
     def get_reorder_alerts(self, user_id: UUID) -> List[Dict[str, Any]]:
         """Get all active reorder alerts for a user"""
-        # First make sure alert levels are up to date
+      
         self.update_product_alert_levels(user_id)
         
-        # Query products that need reordering
+        
         products = self.db.exec(
             select(Product).where(
                 (Product.user_id == user_id) &
@@ -108,10 +105,10 @@ class AlertService:
             ).order_by(Product.alert_level, Product.name)
         ).all()
         
-        # Prepare alert data
+        
         alerts = []
         for product in products:
-            # Get supplier info
+            
             supplier_name = "Unknown Supplier"
             supplier_contact = None
             if product.supplier_id:
@@ -120,10 +117,10 @@ class AlertService:
                     supplier_name = supplier.name
                     supplier_contact = supplier.contact_email
             
-            # Days of stock calculation (simple version)
+            
             days_of_stock = 0
             if product.on_hand > 0:
-                # Get average daily sales for last 30 days
+                
                 from sqlalchemy.sql import text
                 daily_sales_query = text("""
                     SELECT COALESCE(AVG(quantity), 0) as avg_daily_sales
@@ -145,7 +142,7 @@ class AlertService:
                 avg_daily_sales = result[0] if result and result[0] > 0 else 0.1  # Avoid division by zero
                 days_of_stock = round(product.on_hand / avg_daily_sales)
             
-            # Prepare alert data
+            
             alerts.append({
                 "id": str(product.id),
                 "sku": product.sku,
@@ -203,7 +200,7 @@ class AlertService:
         
         notifications = self.db.exec(query).all()
         
-        # Convert to dict for response
+       
         result = []
         for notif in notifications:
             result.append({

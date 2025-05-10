@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
-from app.api.auth.supabase import get_current_supabase_user, get_optional_supabase_user
+from app.api.auth.supabase import get_current_supabase_user, get_optional_supabase_user, cleanup_user_session
 from app.schemas.data_models.User import UserRead, SupabaseUserCreate
 from app.models.data_models.User import User
 from sqlmodel import Session, select
@@ -8,11 +8,9 @@ from typing import Dict, Any, Optional
 import uuid
 import logging
 
-# Set up logging
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
-# Placeholder value for password hash for Supabase users
 SUPABASE_USER_PASSWORD_PLACEHOLDER = "SUPABASE_AUTH"
 
 router = APIRouter(
@@ -27,7 +25,6 @@ async def get_supabase_user_info(
 ):
     """Get the current authenticated Supabase user's information"""
     
-    # Check if the Supabase user exists in our database
     supabase_id = supabase_user.get("id")
     if not supabase_id:
         raise HTTPException(
@@ -35,12 +32,9 @@ async def get_supabase_user_info(
             detail="Invalid Supabase user information"
         )
     
-    # Find user by Supabase ID
     user = db.exec(select(User).where(User.supabase_id == supabase_id)).first()
     
-    # If user doesn't exist, create a new user
     if not user:
-        # Create user with information from Supabase
         email = supabase_user.get("email")
         
         if not email:
@@ -49,15 +43,13 @@ async def get_supabase_user_info(
                 detail="Email is required"
             )
         
-        # Create a new user
         user = User(
             email=email,
             supabase_id=supabase_id,
-            password_hash=SUPABASE_USER_PASSWORD_PLACEHOLDER,  # Use placeholder for password
-            id=uuid.uuid4()  # Generate a new UUID for the user
+            password_hash=SUPABASE_USER_PASSWORD_PLACEHOLDER,
+            id=uuid.uuid4()
         )
         
-        # Add user to database
         db.add(user)
         db.commit()
         db.refresh(user)
@@ -77,32 +69,24 @@ async def sync_supabase_user(
     1. The Supabase JWT token in the Authorization header (preferred)
     2. The request body with user data (fallback)
     """
-    # First, try to get user info from the token
     supabase_user = await get_optional_supabase_user(request)
     
-    # Extract user details - first from token, then from body if needed
     if supabase_user:
-        # Use data from validated token
         supabase_id = supabase_user.get("id")
         email = supabase_user.get("email")
         
-        # Log success with token
         logger.info(f"Successfully validated Supabase token for user {email}")
     elif user_data:
-        # Fallback to request body data
         supabase_id = user_data.supabase_id
         email = user_data.email
         
-        # Log fallback to body data
         logger.info(f"Using request body data for user {email}")
     else:
-        # No valid data found
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No valid user information provided in token or request body"
         )
     
-    # Validate required fields
     if not supabase_id or not email:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -110,17 +94,14 @@ async def sync_supabase_user(
         )
     
     try:
-        # Log database operation
         logger.info(f"Attempting to find or create user with Supabase ID: {supabase_id}")
         
-        # Find user by Supabase ID
         query = select(User).where(User.supabase_id == supabase_id)
         logger.info(f"Query: {query}")
         user = db.exec(query).first()
         
         if user:
             logger.info(f"Found existing user by Supabase ID: {user.email}")
-            # Update existing user if email changed
             if user.email != email:
                 user.email = email
                 db.add(user)
@@ -128,25 +109,21 @@ async def sync_supabase_user(
                 db.refresh(user)
                 logger.info(f"Updated user email from {user.email} to {email}")
         else:
-            # Find user by email
             logger.info(f"No user found with Supabase ID, checking by email: {email}")
             user = db.exec(select(User).where(User.email == email)).first()
             
             if user:
-                # Link existing user to Supabase
                 logger.info(f"Found user by email: {email}, linking to Supabase ID: {supabase_id}")
                 user.supabase_id = supabase_id
             else:
-                # Create a new user
                 logger.info(f"Creating new user with email: {email} and Supabase ID: {supabase_id}")
                 user = User(
                     email=email,
                     supabase_id=supabase_id,
-                    password_hash=SUPABASE_USER_PASSWORD_PLACEHOLDER,  # Use placeholder for password
-                    id=uuid.uuid4()  # Generate a new UUID for the user
+                    password_hash=SUPABASE_USER_PASSWORD_PLACEHOLDER,
+                    id=uuid.uuid4()
                 )
             
-            # Save changes
             db.add(user)
             db.commit()
             db.refresh(user)
@@ -154,9 +131,23 @@ async def sync_supabase_user(
         
         return user
     except Exception as e:
-        # Log the error with traceback
         logger.error(f"Error syncing user: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error syncing user: {str(e)}"
-        ) 
+        )
+
+@router.post("/logout")
+async def logout(
+    supabase_user: Dict[str, Any] = Depends(get_optional_supabase_user)
+):
+    
+    if supabase_user:
+        supabase_id = supabase_user.get("id")
+        logger.info(f"User with Supabase ID {supabase_id} logged out")
+        
+        await cleanup_user_session(supabase_id)
+    else:
+        logger.info("Logout requested without valid session")
+    
+    return {"status": "success", "message": "Logged out successfully"}

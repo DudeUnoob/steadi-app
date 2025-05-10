@@ -17,6 +17,6 @@ class PurchaseOrder(SQLModel, table=True):
     pdf_url: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    # Relationships
+    
     supplier: "Supplier" = Relationship(back_populates="purchase_orders")
     items: List["PurchaseOrderItem"] = Relationship(back_populates="purchase_order")
