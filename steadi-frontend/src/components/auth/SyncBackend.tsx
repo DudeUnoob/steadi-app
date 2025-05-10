@@ -11,7 +11,6 @@ const RETRY_DELAY = 2000;
 export function SyncBackend() {
   const { session, user } = useAuth();
   const [synced, setSynced] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
   const syncUser = useCallback(async () => {
@@ -21,7 +20,6 @@ export function SyncBackend() {
 
     if (retryCount >= MAX_RETRIES) {
       console.error('Max retries reached when syncing with backend');
-      setError('Failed to sync user data after multiple attempts');
       return;
     }
 
@@ -52,7 +50,6 @@ export function SyncBackend() {
         throw new Error(data.detail || 'Failed to sync with backend');
       }
 
-      setError(null);
       setRetryCount(0);
       setSynced(true);
       
@@ -63,7 +60,6 @@ export function SyncBackend() {
       
     } catch (err) {
       console.error('Error syncing with backend:', err);
-      setError(err instanceof Error ? err.message : 'Sync error');
       
       setRetryCount(prev => prev + 1);
       

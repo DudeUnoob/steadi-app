@@ -16,8 +16,6 @@ export function AuthCallback() {
        
         const isPasswordReset = location.hash.includes('type=recovery');
         
-        const isEmailVerification = location.hash.includes('type=signup');
-        
         if (isPasswordReset) {
          
           const accessToken = new URLSearchParams(location.hash.substring(1)).get('access_token');

@@ -6,9 +6,9 @@ import { SignUpForm } from './SignUpForm';
 
 export function AuthPage() {
   const [mode, setMode] = useState<'login' | 'signup'>('login');
-  const { user, loading } = useAuth();
+  const { user, status } = useAuth();
 
-  if (user && !loading) {
+  if (user && status !== 'LOADING') {
     return <Navigate to="/dashboard" replace />;
   }
 

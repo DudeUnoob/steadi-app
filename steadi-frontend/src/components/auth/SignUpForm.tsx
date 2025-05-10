@@ -28,7 +28,7 @@ export function SignUpForm() {
     setLoading(true);
 
     try {
-      const { error, data, needsEmailVerification } = await signUp(email, password);
+      const { error, needsEmailVerification } = await signUp(email, password);
       
       if (error) {
         throw error;
