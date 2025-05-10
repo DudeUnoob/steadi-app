@@ -1,4 +1,4 @@
-import { Routes, Route, Link, useNavigate } from 'react-router-dom'
+import { Routes, Route, useNavigate } from 'react-router-dom'
 import './index.css'
 import Dashboard from './Dashboard'
 import { AuthProvider } from './lib/AuthContext'
