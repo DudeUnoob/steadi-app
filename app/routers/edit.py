@@ -15,12 +15,12 @@ from app.routers.auth import get_current_user
 from app.api.mvp.auth import get_manager_user
 from app.models.data_models.User import User
 
-# Using the actual service in production, or MVPEditService for development
+
 EditServiceClass = MVPEditService
 
 router = APIRouter(prefix="/edit", tags=["edit"])
 
-# Request models
+
 class ProductCreate(BaseModel):
     sku: str
     name: str

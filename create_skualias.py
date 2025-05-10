@@ -4,7 +4,7 @@ from sqlalchemy import text
 from app.db.database import engine
 from dotenv import load_dotenv
 
-# Load environment variables
+
 load_dotenv()
 
 def create_skualias_table():
@@ -14,7 +14,7 @@ def create_skualias_table():
     with Session(engine) as session:
         print("Creating skualias table...")
         
-        # Create the skualias table
+        
         create_table_sql = text("""
         CREATE TABLE IF NOT EXISTS skualias (
             id UUID PRIMARY KEY,

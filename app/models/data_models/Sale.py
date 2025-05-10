@@ -16,5 +16,5 @@ class Sale(SQLModel, table=True):
     notes: Optional[str] = None
     user_id: UUID = Field(foreign_key="user.id")
     
-    # Relationships
+    
     product: "Product" = Relationship(back_populates="sales")

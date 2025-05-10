@@ -5,12 +5,13 @@ from enum import Enum, auto
 from sqlmodel import Field, SQLModel, Relationship
 from pydantic import validator
 from app.models.enums.UserRole import UserRole
-# User schema for API responses (without password)
+
 class UserRead(SQLModel):
     id: UUID
     email: str
     role: UserRole
     created_at: datetime
+    supabase_id: Optional[str] = None
     
     class Config:
         json_encoders = {
@@ -18,11 +19,11 @@ class UserRead(SQLModel):
             UserRole: lambda v: v.value
         }
 
-# User creation schema
 class UserCreate(SQLModel):
     email: str
-    password: str
+    password: Optional[str] = None
     role: Optional[UserRole] = UserRole.STAFF
+    supabase_id: Optional[str] = None
     
     @validator('email')
     def email_must_contain_at(cls, v):
@@ -32,12 +33,16 @@ class UserCreate(SQLModel):
     
     @validator('password')
     def password_min_length(cls, v):
-        if len(v) < 8:
+        if v is not None and len(v) < 8:
             raise ValueError('password must be at least 8 characters')
         return v
 
-# Token schema
 class Token(SQLModel):
     access_token: str
     refresh_token: str
-    token_type: str = "bearer" 
+    token_type: str = "bearer"
+
+class SupabaseUserCreate(SQLModel):
+    email: str
+    supabase_id: str
+    role: Optional[UserRole] = UserRole.STAFF

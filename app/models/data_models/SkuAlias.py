@@ -15,5 +15,4 @@ class SkuAlias(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     user_id: UUID = Field(foreign_key="user.id")
     
-    # Use string for the relationship target to avoid circular imports
     product: "Product" = Relationship(sa_relationship="Product") 

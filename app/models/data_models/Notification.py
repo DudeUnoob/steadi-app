@@ -22,5 +22,5 @@ class Notification(SQLModel, table=True):
     payload: Optional[Dict] = Field(default={}, sa_column=Column(JSON))
     sent_at: Optional[datetime] = Field(default_factory=datetime.utcnow)
     read_at: Optional[datetime] = None
-    # Relationships
+    
     user: "User" = Relationship(back_populates="notifications")

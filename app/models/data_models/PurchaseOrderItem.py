@@ -14,6 +14,6 @@ class PurchaseOrderItem(SQLModel, table=True):
     product_id: UUID = Field(foreign_key="product.id")
     quantity: int = Field(gt=0)
     unit_cost: float = Field(ge=0)
-    # Relationships
+    
     purchase_order: "PurchaseOrder" = Relationship(back_populates="items")
     product: "Product" = Relationship(back_populates="purchase_order_items")

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { IconInfoCircle, IconChartBar, IconBox, IconCash, IconTruckDelivery } from '@tabler/icons-react'
+import { LogoutButton } from './components/auth/LogoutButton'
 
 function Dashboard() {
   const links = [
@@ -48,6 +49,11 @@ function Dashboard() {
               <span className="font-['Poppins']">{link.label}</span>
             </a>
           ))}
+          
+          {/* Add logout button to sidebar */}
+          <div className="mt-auto pt-10">
+            <LogoutButton className="w-full mt-10" />
+          </div>
         </div>
       </div>
 
@@ -59,6 +65,8 @@ function Dashboard() {
             <span className="bg-black text-white px-6 py-3 rounded-full font-['Poppins'] font-medium">
               Dashboard
             </span>
+            {/* Add logout button to header */}
+            <LogoutButton variant="icon" />
           </div>
         </header>
 
@@ -97,7 +105,7 @@ function Dashboard() {
           </div>
           
           {/* Third row spanning both columns */}
-          <div className="border border-blue-500 border-black/20 rounded-lg p-6 col-span-2 min-h-[350px] backdrop-blur-sm bg-white/5 relative">
+          <div className="border border-black/20 rounded-lg p-6 col-span-2 min-h-[350px] backdrop-blur-sm bg-white/5 relative">
             <div className="absolute top-6 left-6">
               <IconInfoCircle size={24} className="text-black" />
             </div>

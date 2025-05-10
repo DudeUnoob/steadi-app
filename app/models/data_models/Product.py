@@ -27,11 +27,11 @@ class Product(SQLModel, table=True):
     alert_level: Optional[AlertLevel] = None
     user_id: UUID = Field(foreign_key="user.id")
     
-    # Relationships
+    
     supplier: Optional["Supplier"] = Relationship(back_populates="products")
     ledger_entries: List["InventoryLedger"] = Relationship(back_populates="product")
     sales: List["Sale"] = Relationship(back_populates="product")
     purchase_order_items: List["PurchaseOrderItem"] = Relationship(back_populates="product")
     
-    # Use string for the relationship target to avoid circular imports
+    
     aliases: List["SkuAlias"] = Relationship(sa_relationship="SkuAlias")

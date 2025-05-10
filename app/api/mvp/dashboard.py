@@ -24,7 +24,7 @@ class MVPDashboardService:
     def seed_test_data(self) -> Dict[str, str]:
         """Seed the database with test data"""
         try:
-            # Create a supplier
+            
             supplier = Supplier(
                 name="Test Supplier",
                 contact_email="supplier@test.com",
@@ -34,7 +34,7 @@ class MVPDashboardService:
             self.db.commit()
             self.db.refresh(supplier)
             
-            # Create some products
+            
             products = []
             for i in range(10):
                 product = Product(
@@ -52,7 +52,7 @@ class MVPDashboardService:
             
             self.db.commit()
             
-            # Create sales data for the last 30 days
+           
             for product in products:
                 for i in range(30):
                     sale_date = datetime.utcnow() - timedelta(days=i)
@@ -74,43 +74,42 @@ class MVPDashboardService:
         Get paginated inventory dashboard with search and analytics
         Returns items:[{sku, name, on_hand, reorder_point, badge, color, sales_trend, days_of_stock}]
         """
-        # Get base inventory query
+        
         query = select(Product)
         if search:
-            # Special case handling for "Candle X" type searches, to avoid "Candle 1" matching "Candle 11", etc.
-            # Check if search is in format "Something X" where X is a number
+           
             pattern = r"^(.+)(\s+)(\d+)$"
             match = re.match(pattern, search)
             
             if match:
-                # Extract the base name and number
+                
                 base_name = match.group(1)
                 space = match.group(2) 
                 number = match.group(3)
                 
-                # Create a precise pattern: base_name + space + exact number + boundary
+                
                 query = query.filter(
                     (Product.sku == search) | 
                     (Product.name == search) |
-                    # This specifically matches "Candle 1" but not "Candle 11", etc.
+                    
                     (Product.name.ilike(f"{base_name}{space}{number}"))
                 )
             else:
-                # Default search for non-numeric patterns
+                
                 query = query.filter(
                     (Product.sku == search) | 
                     (Product.name == search) |
-                    # Also include pattern matches with space-aware boundaries
+                    
                     (Product.name.ilike(f"{search} %")) |
                     (Product.name.ilike(f"% {search} %")) |
                     (Product.name.ilike(f"% {search}"))
                 )
         
-        # Count total items
+        
         count_query = select(func.count()).select_from(Product)
         if search:
-            # Same special case handling for count query
-            # Check if search is in format "Something X" where X is a number
+            
+            
             pattern = r"^(.+)(\s+)(\d+)$"
             match = re.match(pattern, search)
             
@@ -134,25 +133,25 @@ class MVPDashboardService:
                 )
         total = self.db.exec(count_query).one()
         
-        # Calculate pagination
+        
         skip = (page - 1) * limit
         products = self.db.exec(query.offset(skip).limit(limit)).all()
         
-        # Process each product
+        
         inventory_items = []
         for product in products:
-            # Get 7-day sales history
+            
             sales_history = self.analytics_service.get_sales_history(
                 product_id=product.id,
                 period=7
             )
             
-            # Calculate days of stock
+            
             days_of_stock = self.threshold_service.calculate_days_of_stock(product.id)
             
-            # Determine badge and color based on stock level
+            
             badge = None
-            color = "#4CAF50"  # Default green
+            color = "#4CAF50"  
             
             if product.alert_level == "RED":
                 badge = "RED"
@@ -182,10 +181,9 @@ class MVPDashboardService:
     
     def get_sales_analytics(self, period: int = 7) -> Dict[str, Any]:
         """Get sales analytics for the specified period"""
-        # Get top sellers
+        
         top_sellers = self.analytics_service.get_top_sellers(limit=5, period=period)
         
-        # Calculate overall turnover rate
         turnover_rate = self.analytics_service.calculate_turnover_rate(period=period)
         
         return {
