@@ -1,18 +1,18 @@
 "use client"
 
-import type * as React from "react"
+import * as React from "react"
 import { CalendarIcon } from "lucide-react"
 import { format } from "date-fns"
-import type { DateRange } from "react-day-picker"
 
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { type DateRange } from "react-day-picker"
 
 interface DateRangePickerProps {
-  dateRange: DateRange
-  setDateRange: React.Dispatch<React.SetStateAction<DateRange>>
+  dateRange: DateRange | undefined
+  setDateRange: (date: DateRange | undefined) => void
   className?: string
 }
 
@@ -41,7 +41,7 @@ export function DateRangePicker({ dateRange, setDateRange, className }: DateRang
             )}
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-auto p-0" align="end">
+        <PopoverContent className="w-auto p-0 bg-background" align="end">
           <Calendar
             initialFocus
             mode="range"
@@ -49,6 +49,15 @@ export function DateRangePicker({ dateRange, setDateRange, className }: DateRang
             selected={dateRange}
             onSelect={setDateRange}
             numberOfMonths={2}
+            disabled={{
+              before: new Date(2020, 0, 1)
+            }}
+            classNames={{
+              head_cell: "text-center font-medium text-sm w-9",
+              cell: "text-center p-0 relative [&:has([aria-selected])]:bg-accent first:[&:has([aria-selected])]:rounded-l-md last:[&:has([aria-selected])]:rounded-r-md",
+              day: "h-9 w-9 p-0 font-normal aria-selected:opacity-100 hover:bg-muted hover:rounded-md",
+              day_selected: "bg-primary text-primary-foreground hover:bg-primary hover:text-primary-foreground",
+            }}
           />
         </PopoverContent>
       </Popover>
