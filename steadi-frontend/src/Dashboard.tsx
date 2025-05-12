@@ -1,8 +1,62 @@
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { IconInfoCircle, IconChartBar, IconBox, IconCash, IconTruckDelivery } from '@tabler/icons-react'
 import { LogoutButton } from './components/auth/LogoutButton'
+import { productsApi, suppliersApi, salesApi } from './lib/api'
+
+// Types
+interface Product {
+  id: string;
+  sku: string;
+  name: string;
+  cost: number;
+  on_hand: number;
+  reorder_point: number;
+}
+
+interface Supplier {
+  id: string;
+  name: string;
+  contact_email: string;
+  contact_phone: string;
+}
+
+interface Sale {
+  id: string;
+  product_id: string;
+  quantity: number;
+  sale_date: string;
+}
 
 function Dashboard() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [sales, setSales] = useState<Sale[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        const [productsData, suppliersData, salesData] = await Promise.all([
+          productsApi.list(),
+          suppliersApi.list(),
+          salesApi.list()
+        ]);
+        setProducts(productsData);
+        setSuppliers(suppliersData);
+        setSales(salesData);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to fetch data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
   const links = [
     {
       label: "Dashboard",
@@ -30,6 +84,25 @@ function Dashboard() {
       icon: <IconTruckDelivery className="text-black" size={20} />
     }
   ]
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-r from-[#ff5757] to-[#8c52ff] flex justify-center items-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-black"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-r from-[#ff5757] to-[#8c52ff] flex justify-center items-center">
+        <div className="bg-white/10 backdrop-blur-sm rounded-lg border border-black/20 p-8">
+          <h2 className="text-2xl font-bold text-black mb-4">Error</h2>
+          <p className="text-black">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-r from-[#ff5757] to-[#8c52ff] flex">
@@ -72,39 +145,55 @@ function Dashboard() {
 
         {/* Main Dashboard Grid */}
         <div className="p-10 grid grid-cols-2 gap-6">
-          {/* First row, first column */}
+          {/* Sales Overview */}
           <div className="border border-black/20 rounded-lg p-6 h-64 backdrop-blur-sm bg-white/5 relative">
             <div className="absolute top-6 left-6">
               <IconInfoCircle size={24} className="text-black" />
             </div>
             <h2 className="text-2xl font-['Poppins'] font-medium text-black ml-10">Sales</h2>
+            <div className="mt-4 text-black">
+              <p>Total Sales: {sales.length}</p>
+              <p>Total Quantity: {sales.reduce((sum, sale) => sum + sale.quantity, 0)}</p>
+            </div>
           </div>
           
-          {/* First row, second column */}
+          {/* Products Overview */}
           <div className="border border-black/20 rounded-lg p-6 h-64 backdrop-blur-sm bg-white/5 relative">
             <div className="absolute top-6 left-6">
               <IconInfoCircle size={24} className="text-black" />
             </div>
             <h2 className="text-2xl font-['Poppins'] font-medium text-black ml-10">Products</h2>
+            <div className="mt-4 text-black">
+              <p>Total Products: {products.length}</p>
+              <p>Total Value: ${products.reduce((sum, product) => sum + (product.cost * product.on_hand), 0).toFixed(2)}</p>
+            </div>
           </div>
           
-          {/* Second row, first column */}
+          {/* Inventory Overview */}
           <div className="border border-black/20 rounded-lg p-6 h-64 backdrop-blur-sm bg-white/5 relative">
             <div className="absolute top-6 left-6">
               <IconInfoCircle size={24} className="text-black" />
             </div>
             <h2 className="text-2xl font-['Poppins'] font-medium text-black ml-10">Inventory</h2>
+            <div className="mt-4 text-black">
+              <p>Low Stock Items: {products.filter(p => p.on_hand <= p.reorder_point).length}</p>
+              <p>Total Items: {products.reduce((sum, product) => sum + product.on_hand, 0)}</p>
+            </div>
           </div>
           
-          {/* Second row, second column */}
+          {/* Suppliers Overview */}
           <div className="border border-black/20 rounded-lg p-6 h-64 backdrop-blur-sm bg-white/5 relative">
             <div className="absolute top-6 left-6">
               <IconInfoCircle size={24} className="text-black" />
             </div>
             <h2 className="text-2xl font-['Poppins'] font-medium text-black ml-10">Suppliers</h2>
+            <div className="mt-4 text-black">
+              <p>Total Suppliers: {suppliers.length}</p>
+              <p>Active Products: {products.length}</p>
+            </div>
           </div>
           
-          {/* Third row spanning both columns */}
+          {/* Sales Graph */}
           <div className="border border-black/20 rounded-lg p-6 col-span-2 min-h-[350px] backdrop-blur-sm bg-white/5 relative">
             <div className="absolute top-6 left-6">
               <IconInfoCircle size={24} className="text-black" />

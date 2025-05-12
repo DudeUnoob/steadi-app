@@ -333,3 +333,9 @@ curl -X GET "http://localhost:8000/auth/users/me" \
   - `routers/` - API route modules
     - `auth.py` - Authentication routes
 - `main.py` - Application entry point
+
+## 
+.env needs:
+'''
+DATABASE_URL = postgresql://abcdefghijklmnop12345
+'''

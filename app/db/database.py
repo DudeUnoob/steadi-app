@@ -2,21 +2,19 @@ import os
 import logging
 from sqlmodel import create_engine, Session, SQLModel
 from sqlalchemy.exc import SQLAlchemyError
+from dotenv import load_dotenv
 
 import app.models.data_models
 
-
-import app.models.data_models
-
+# Load environment variables from .env file
+load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", 
-    
-)
-
+# Get database URL from environment variable
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL environment variable is not set")
 
 engine = create_engine(
     DATABASE_URL, 

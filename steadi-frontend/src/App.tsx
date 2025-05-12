@@ -1,12 +1,12 @@
 import { Routes, Route, useNavigate } from 'react-router-dom'
 import './index.css'
-import Dashboard from './Dashboard'
 import { AuthProvider } from './lib/AuthContext'
 import { AuthPage } from './components/auth/AuthPage'
 import { AuthCallback } from './components/auth/AuthCallback'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { SyncBackend } from './components/auth/SyncBackend'
 import { ResetPassword } from './components/auth/ResetPassword'
+import Dashboard from './components/dashboard'
 
 function LandingPage() {
   const navigate = useNavigate()

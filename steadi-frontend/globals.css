@@ -1,0 +1,116 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --background: 240 10% 3.9%;
+        --foreground: 0 0% 98%;
+        --card: 240 10% 3.9%;
+        --card-foreground: 0 0% 98%;
+        --popover: 240 10% 3.9%;
+        --popover-foreground: 0 0% 98%;
+        --primary: 346 100% 58%;
+        --primary-foreground: 0 0% 98%;
+        --secondary: 270 67% 47%;
+        --secondary-foreground: 0 0% 98%;
+        --muted: 240 3.7% 15.9%;
+        --muted-foreground: 240 5% 64.9%;
+        --accent: 240 3.7% 15.9%;
+        --accent-foreground: 0 0% 98%;
+        --destructive: 0 62.8% 30.6%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 240 3.7% 15.9%;
+        --input: 240 3.7% 15.9%;
+        --ring: 346 100% 58%;
+        --radius: 0.5rem;
+    }
+
+    .light {
+        --background: 0 0% 100%;
+        --foreground: 240 10% 3.9%;
+        --card: 0 0% 100%;
+        --card-foreground: 240 10% 3.9%;
+        --popover: 0 0% 100%;
+        --popover-foreground: 240 10% 3.9%;
+        --primary: 346 100% 58%;
+        --primary-foreground: 0 0% 98%;
+        --secondary: 270 67% 47%;
+        --secondary-foreground: 0 0% 98%;
+        --muted: 240 4.8% 95.9%;
+        --muted-foreground: 240 3.8% 46.1%;
+        --accent: 240 4.8% 95.9%;
+        --accent-foreground: 240 5.9% 10%;
+        --destructive: 0 84.2% 60.2%;
+        --destructive-foreground: 0 0% 98%;
+        --border: 240 5.9% 90%;
+        --input: 240 5.9% 90%;
+        --ring: 346 100% 58%;
+    }
+}
+
+@layer base {
+    * {
+        @apply border-border;
+    }
+
+    body {
+        @apply bg-background text-foreground;
+        background-image: radial-gradient(circle at 15% 50%, rgba(188, 58, 128, 0.075) 0%, transparent 25%),
+            radial-gradient(circle at 85% 30%, rgba(103, 58, 183, 0.075) 0%, transparent 25%);
+        background-attachment: fixed;
+    }
+}
+
+.steadi-gradient {
+    background: linear-gradient(90deg, #ff5757 0%, #c850c0 50%, #9f4fe1 100%);
+}
+
+.steadi-gradient-text {
+    background: linear-gradient(90deg, #ff5757 0%, #c850c0 50%, #9f4fe1 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.futuristic-card {
+    background: rgba(30, 30, 35, 0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.05), 0 0 0 1px rgba(255, 87, 87, 0.05) inset;
+}
+
+.futuristic-card:hover {
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(255, 87, 87, 0.1) inset;
+}
+
+.futuristic-glow {
+    box-shadow: 0 0 15px rgba(255, 87, 87, 0.3), 0 0 30px rgba(200, 80, 192, 0.1);
+}
+
+.grid-pattern {
+    background-image: linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+
+.neon-border {
+    position: relative;
+}
+
+.neon-border::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(90deg, #ff5757, #c850c0, #9f4fe1);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+}
