@@ -1,10 +1,23 @@
 import {Link} from "react-router-dom"
-import { ModeToggle } from "@/components/mode-toggle"
+import { ModeToggle } from "@/components/dashboard/mode-toggle"
 import { Button } from "@/components/ui/button"
-import { Bell, HelpCircle, Search } from "lucide-react"
+import { Bell, HelpCircle, LogOut, Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
+import { useAuth } from "@/lib/AuthContext"
+import { 
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 export function DashboardHeader() {
+  const { signOut } = useAuth();
+
+  const handleLogout = async () => {
+    await signOut();
+  };
+
   return (
     <header className=" px-4 sticky top-0 z-50 w-full border-b border-[#2a2a30] bg-background/80 backdrop-blur-xl supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between">
@@ -59,6 +72,18 @@ export function DashboardHeader() {
             <HelpCircle className="h-5 w-5" />
           </Button>
           <ModeToggle />
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button variant="ghost" size="icon" onClick={handleLogout}>
+                  <LogOut className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Logout</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
         </div>
       </div>
     </header>

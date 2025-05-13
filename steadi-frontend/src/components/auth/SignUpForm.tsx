@@ -1,194 +1,215 @@
-import { useState } from 'react';
-import { useAuth } from '../../lib/AuthContext';
+"use client"
 
-export function SignUpForm() {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [verificationSent, setVerificationSent] = useState(false);
-  const { signUp, signInWithGoogle } = useAuth();
+import { useState } from "react"
+import { useNavigate } from "react-router-dom"
+import { zodResolver } from "@hookform/resolvers/zod"
+import { useForm } from "react-hook-form"
+import { z } from "zod"
+import { Button } from "@/components/ui/button"
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useToast } from "@/components/ui/use-toast"
+import { Eye, EyeOff } from "lucide-react"
+import { useAuth } from "@/lib/AuthContext"
 
-  const handleSignUp = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError(null);
-    setVerificationSent(false);
-    
-    if (password !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
+const signupFormSchema = z.object({
+    username: z
+        .string()
+        .min(3, { message: "Username must be at least 3 characters" })
+        .max(50, { message: "Username must not exceed 50 characters" }),
+    email: z.string().email({ message: "Please enter a valid email address" }),
+    password: z
+        .string()
+        .min(8, { message: "Password must be at least 8 characters" })
+        .regex(/[A-Z]/, { message: "Password must contain at least one uppercase letter" })
+        .regex(/[a-z]/, { message: "Password must contain at least one lowercase letter" })
+        .regex(/[0-9]/, { message: "Password must contain at least one number" }),
+    role: z.enum(["owner", "manager", "staff"], {
+        required_error: "Please select a role",
+    }),
+    orgCode: z.string().optional(),
+})
+
+type SignupFormValues = z.infer<typeof signupFormSchema>
+
+export function SignupForm() {
+    const navigate = useNavigate()
+    const { toast } = useToast()
+    const { signUp } = useAuth()
+    const [showPassword, setShowPassword] = useState(false)
+    const [isSubmitting, setIsSubmitting] = useState(false)
+
+    const form = useForm<SignupFormValues>({
+        resolver: zodResolver(signupFormSchema),
+        defaultValues: {
+            username: "",
+            email: "",
+            password: "",
+            role: "staff",
+            orgCode: "",
+        },
+    })
+
+    const selectedRole = form.watch("role")
+
+    async function onSubmit(data: SignupFormValues) {
+        setIsSubmitting(true)
+
+        try {
+            // Organization code validation for non-owners
+            if (data.role !== "owner" && (!data.orgCode || data.orgCode.trim() === "")) {
+                form.setError("orgCode", {
+                    type: "manual",
+                    message: "Organization code is required for non-owner roles",
+                })
+                setIsSubmitting(false)
+                return
+            }
+
+            // Register the user with Supabase
+            const response = await signUp(data.email, data.password)
+
+            if (response.error) {
+                throw new Error(response.error.message || "Failed to create account")
+            }
+
+            if (response.needsEmailVerification) {
+                toast({
+                    title: "Verification email sent",
+                    description: "Please check your email to verify your account.",
+                })
+                navigate("/auth") // Return to auth page
+                return
+            }
+
+            toast({
+                title: "Account created successfully",
+                description: `Welcome, ${data.username}!`,
+            })
+
+            navigate("/dashboard")
+        } catch (error: any) {
+            toast({
+                title: "Error",
+                description: error.message || "Something went wrong. Please try again.",
+                variant: "destructive",
+            })
+        } finally {
+            setIsSubmitting(false)
+        }
     }
 
-    if (password.length < 8) {
-      setError('Password must be at least 8 characters');
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const { error, needsEmailVerification } = await signUp(email, password);
-      
-      if (error) {
-        throw error;
-      }
-      
-      if (needsEmailVerification) {
-        setVerificationSent(true);
-      }
-    } catch (error) {
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : 'Failed to sign up';
-      
-      if (errorMessage.includes('already registered')) {
-        setError('This email is already registered. Please sign in instead.');
-      } else if (errorMessage.includes('valid email')) {
-        setError('Please enter a valid email address.');
-      } else if (errorMessage.toLowerCase().includes('password')) {
-        setError('Password is too weak. Please use at least 8 characters with a mix of letters, numbers, and symbols.');
-      } else {
-        setError(errorMessage);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleGoogleSignUp = async () => {
-    setError(null);
-    try {
-      await signInWithGoogle();
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to sign up with Google');
-    }
-  };
-
-  if (verificationSent) {
     return (
-      <div className="w-full max-w-md space-y-6 p-8 bg-white/10 backdrop-blur-sm rounded-lg border border-black/20">
-        <div className="text-center">
-          <h2 className="text-3xl font-bold text-black font-['Poppins']">Check Your Email</h2>
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-24 w-24 mx-auto my-6 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-          </svg>
-          <p className="mt-2 text-black/70 font-['Poppins']">
-            We've sent a verification link to <strong>{email}</strong>
-          </p>
-          <p className="mt-6 text-black/70 font-['Poppins']">
-            Please check your inbox and click the link to complete your signup.
-          </p>
-          <div className="mt-8">
-            <p className="text-sm text-black/60 font-['Poppins']">
-              Didn't receive an email? Check your spam folder or
-              <button 
-                onClick={() => setVerificationSent(false)}
-                className="ml-1 text-black underline hover:text-black/80"
-              >
-                try again
-              </button>
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+        <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <FormField
+                    control={form.control}
+                    name="username"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Username</FormLabel>
+                            <FormControl>
+                                <Input placeholder="Enter your username" {...field} className="bg-muted/50 border-[#2a2a30]" />
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
 
-  return (
-    <div className="w-full max-w-md space-y-6 p-8 bg-white/10 backdrop-blur-sm rounded-lg border border-black/20">
-      <div className="text-center">
-        <h2 className="text-3xl font-bold text-black font-['Poppins']">Sign Up</h2>
-        <p className="mt-2 text-black/70 font-['Poppins']">Create your account</p>
-      </div>
+                <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Email</FormLabel>
+                            <FormControl>
+                                <Input
+                                    type="email"
+                                    placeholder="Enter your email"
+                                    {...field}
+                                    className="bg-muted/50 border-[#2a2a30]"
+                                />
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
 
-      {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-          {error}
-        </div>
-      )}
+                <FormField
+                    control={form.control}
+                    name="password"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Password</FormLabel>
+                            <FormControl>
+                                <div className="relative">
+                                    <Input
+                                        type={showPassword ? "text" : "password"}
+                                        placeholder="Create a password"
+                                        {...field}
+                                        className="bg-muted/50 border-[#2a2a30] pr-10"
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="absolute right-0 top-0 h-full px-3 py-2 text-muted-foreground"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                    >
+                                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                        <span className="sr-only">{showPassword ? "Hide password" : "Show password"}</span>
+                                    </Button>
+                                </div>
+                            </FormControl>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
 
-      <form onSubmit={handleSignUp} className="space-y-4">
-        <div>
-          <label htmlFor="email" className="block text-sm font-medium text-black font-['Poppins']">
-            Email
-          </label>
-          <input
-            id="email"
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="mt-1 block w-full px-3 py-2 bg-white/20 border border-black/30 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-black/50"
-            placeholder="your@email.com"
-          />
-        </div>
+                <FormField
+                    control={form.control}
+                    name="role"
+                    render={({ field }) => (
+                        <FormItem>
+                            <FormLabel>Role</FormLabel>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                    <SelectTrigger className="bg-muted/50 border-[#2a2a30]">
+                                        <SelectValue placeholder="Select your role" />
+                                    </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                    <SelectItem value="owner">Owner</SelectItem>
+                                    <SelectItem value="manager">Manager</SelectItem>
+                                    <SelectItem value="staff">Staff</SelectItem>
+                                </SelectContent>
+                            </Select>
+                            <FormMessage />
+                        </FormItem>
+                    )}
+                />
 
-        <div>
-          <label htmlFor="password" className="block text-sm font-medium text-black font-['Poppins']">
-            Password
-          </label>
-          <input
-            id="password"
-            type="password"
-            required
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="mt-1 block w-full px-3 py-2 bg-white/20 border border-black/30 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-black/50"
-          />
-          <p className="mt-1 text-xs text-black/60">Must be at least 8 characters</p>
-        </div>
+                {selectedRole !== "owner" && (
+                    <FormField
+                        control={form.control}
+                        name="orgCode"
+                        render={({ field }) => (
+                            <FormItem>
+                                <FormLabel>Organization Code</FormLabel>
+                                <FormControl>
+                                    <Input placeholder="Enter organization code" {...field} className="bg-muted/50 border-[#2a2a30]" />
+                                </FormControl>
+                                <FormMessage />
+                            </FormItem>
+                        )}
+                    />
+                )}
 
-        <div>
-          <label htmlFor="confirmPassword" className="block text-sm font-medium text-black font-['Poppins']">
-            Confirm Password
-          </label>
-          <input
-            id="confirmPassword"
-            type="password"
-            required
-            value={confirmPassword}
-            onChange={(e) => setConfirmPassword(e.target.value)}
-            className="mt-1 block w-full px-3 py-2 bg-white/20 border border-black/30 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-black/50"
-          />
-        </div>
-
-        <div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-black text-white py-2 px-4 rounded-md hover:bg-black/80 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black font-['Poppins']"
-          >
-            {loading ? 'Signing up...' : 'Sign up'}
-          </button>
-        </div>
-      </form>
-
-      <div className="relative">
-        <div className="absolute inset-0 flex items-center">
-          <div className="w-full border-t border-black/30"></div>
-        </div>
-        <div className="relative flex justify-center text-sm">
-          <span className="px-2 bg-gradient-to-r from-[#ff5757] to-[#8c52ff] text-black font-['Poppins']">
-            Or continue with
-          </span>
-        </div>
-      </div>
-
-      <div>
-        <button
-          onClick={handleGoogleSignUp}
-          className="w-full flex items-center justify-center bg-white text-black py-2 px-4 rounded-md hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-black/50 border border-black/20 font-['Poppins']"
-        >
-          <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
-            <path
-              fill="currentColor"
-              d="M12.545,10.239v3.821h5.445c-0.712,2.315-2.647,3.972-5.445,3.972c-3.332,0-6.033-2.701-6.033-6.032s2.701-6.032,6.033-6.032c1.498,0,2.866,0.549,3.921,1.453l2.814-2.814C17.503,2.988,15.139,2,12.545,2C7.021,2,2.543,6.477,2.543,12s4.478,10,10.002,10c8.396,0,10.249-7.85,9.426-11.748L12.545,10.239z"
-            />
-          </svg>
-          Sign up with Google
-        </button>
-      </div>
-    </div>
-  );
-} 
+                <Button type="submit" className="w-full bg-steadi-pink hover:bg-steadi-pink/90" disabled={isSubmitting}>
+                    {isSubmitting ? "Creating Account..." : "Create Account"}
+                </Button>
+            </form>
+        </Form>
+    )
+}
