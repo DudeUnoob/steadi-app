@@ -8,21 +8,26 @@ from app.models.data_models.Notification import Notification
 from app.models.data_models.Supplier import Supplier
 from app.models.enums.AlertLevel import AlertLevel
 from app.models.enums.NotificationChannel import NotificationChannel
+from app.models.service_classes.ThresholdService import ThresholdService
 
 class AlertService:
     """Service for managing product inventory alerts"""
     
     def __init__(self, db: Session):
         self.db = db
+        self.threshold_service = ThresholdService(db)
     
     def update_product_alert_levels(self, user_id: UUID) -> Dict[str, int]:
-       
-        
+        """
+        Update alert levels for all products according to the formula:
+        - reorder_point = safety_stock + (avg_daily_sales × lead_time_days)
+        - RED if on_hand <= reorder_point
+        - YELLOW if on_hand <= reorder_point + safety_stock
+        """
         products = self.db.exec(
             select(Product).where(Product.user_id == user_id)
         ).all()
         
-       
         alert_counts = {
             "red": 0,
             "yellow": 0,
@@ -30,27 +35,36 @@ class AlertService:
             "total": len(products)
         }
         
+        # Process products in batches to reduce database calls
+        product_ids = [product.id for product in products]
+        days_of_stock_map = self.threshold_service.calculate_batch_days_of_stock(product_ids)
         
         for product in products:
             old_alert_level = product.alert_level
             
+            # Update reorder_point based on formula from PRD
+            new_reorder_point = self.threshold_service.calculate_reorder_point(product.id)
+            if product.reorder_point != new_reorder_point:
+                product.reorder_point = new_reorder_point
+                self.db.add(product)
             
-            if product.on_hand <= product.safety_stock:
+            # Determine alert level according to PRD
+            if product.on_hand <= product.reorder_point:
                 new_alert_level = AlertLevel.RED
                 alert_counts["red"] += 1
-            elif product.on_hand <= product.reorder_point:
+            elif product.on_hand <= (product.reorder_point + product.safety_stock):
                 new_alert_level = AlertLevel.YELLOW
                 alert_counts["yellow"] += 1
             else:
                 new_alert_level = None
                 alert_counts["normal"] += 1
             
-           
+            # Update product if alert level changed
             if old_alert_level != new_alert_level:
                 product.alert_level = new_alert_level
                 self.db.add(product)
                 
-                
+                # Create notification if alert level is RED or YELLOW
                 if new_alert_level in [AlertLevel.RED, AlertLevel.YELLOW]:
                     self._create_reorder_notification(product, user_id)
         
@@ -66,12 +80,13 @@ class AlertService:
             if supplier:
                 supplier_name = supplier.name
         
+        # Get days of stock for context
+        days_of_stock = self.threshold_service.calculate_days_of_stock(product.id)
         
         if product.alert_level == AlertLevel.RED:
-            message = f"URGENT: {product.name} (SKU: {product.sku}) is below safety stock level! Current stock: {product.on_hand}"
+            message = f"URGENT: Reorder {max(1, product.reorder_point - product.on_hand)} × '{product.sku}' – Est. {days_of_stock} days left"
         else: 
-            message = f"{product.name} (SKU: {product.sku}) has reached reorder point. Current stock: {product.on_hand}"
-        
+            message = f"Reorder {max(1, product.reorder_point - product.on_hand)} × '{product.sku}' – Est. {days_of_stock} days left"
         
         notification = Notification(
             user_id=user_id,
@@ -86,7 +101,8 @@ class AlertService:
                 "alert_level": product.alert_level,
                 "supplier_name": supplier_name,
                 "supplier_id": str(product.supplier_id) if product.supplier_id else None,
-                "message": message
+                "message": message,
+                "days_of_stock": days_of_stock
             }
         )
         
@@ -95,8 +111,8 @@ class AlertService:
     def get_reorder_alerts(self, user_id: UUID) -> List[Dict[str, Any]]:
         """Get all active reorder alerts for a user"""
       
+        # Update alert levels before returning alerts
         self.update_product_alert_levels(user_id)
-        
         
         products = self.db.exec(
             select(Product).where(
@@ -105,10 +121,12 @@ class AlertService:
             ).order_by(Product.alert_level, Product.name)
         ).all()
         
+        # Get days of stock for all alert products in one batch query
+        product_ids = [product.id for product in products]
+        days_of_stock_map = self.threshold_service.calculate_batch_days_of_stock(product_ids)
         
         alerts = []
         for product in products:
-            
             supplier_name = "Unknown Supplier"
             supplier_contact = None
             if product.supplier_id:
@@ -117,31 +135,7 @@ class AlertService:
                     supplier_name = supplier.name
                     supplier_contact = supplier.contact_email
             
-            
-            days_of_stock = 0
-            if product.on_hand > 0:
-                
-                from sqlalchemy.sql import text
-                daily_sales_query = text("""
-                    SELECT COALESCE(AVG(quantity), 0) as avg_daily_sales
-                    FROM sale
-                    WHERE product_id = :product_id
-                    AND sale_date >= :start_date
-                    AND user_id = :user_id
-                """)
-                
-                result = self.db.execute(
-                    daily_sales_query,
-                    {
-                        "product_id": str(product.id),
-                        "start_date": datetime.utcnow() - timedelta(days=30),
-                        "user_id": str(user_id)
-                    }
-                ).first()
-                
-                avg_daily_sales = result[0] if result and result[0] > 0 else 0.1  # Avoid division by zero
-                days_of_stock = round(product.on_hand / avg_daily_sales)
-            
+            days_of_stock = days_of_stock_map.get(product.id, 0)
             
             alerts.append({
                 "id": str(product.id),
@@ -156,7 +150,8 @@ class AlertService:
                 "supplier_id": str(product.supplier_id) if product.supplier_id else None,
                 "days_of_stock": days_of_stock,
                 "lead_time_days": product.lead_time_days,
-                "needs_immediate_action": product.alert_level == AlertLevel.RED or days_of_stock < product.lead_time_days
+                "needs_immediate_action": product.alert_level == AlertLevel.RED or days_of_stock < product.lead_time_days,
+                "reorder_quantity": max(1, product.reorder_point - product.on_hand)
             })
         
         return alerts
@@ -200,7 +195,6 @@ class AlertService:
         
         notifications = self.db.exec(query).all()
         
-       
         result = []
         for notif in notifications:
             result.append({
