@@ -1,0 +1,92 @@
+name: Threshold Evaluator Cron
+
+on:
+  schedule:
+    # Run every 15 minutes
+    - cron: '*/15 * * * *'
+  workflow_dispatch:  # Allow manual triggers for testing
+
+jobs:
+  run-threshold-evaluator:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests python-dotenv
+      
+      - name: Generate signature and trigger evaluator
+        env:
+          CRON_SECRET_KEY: ${{ secrets.CRON_SECRET_KEY }}
+          CRON_API_KEY: ${{ secrets.CRON_API_KEY }}
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+        run: |
+          # Create temporary script to generate signature and make API call
+          cat > trigger_evaluator.py << 'EOF'
+          import hmac
+          import hashlib
+          import time
+          import os
+          import requests
+          import json
+          from datetime import datetime
+          
+          # Get environment variables
+          cron_secret_key = os.environ.get("CRON_SECRET_KEY")
+          cron_api_key = os.environ.get("CRON_API_KEY")
+          api_base_url = os.environ.get("API_BASE_URL", "http://localhost:8000")
+          
+          # Determine which authentication method to use based on available secrets
+          if cron_api_key:
+              # Use the simpler API key method
+              url = f"{api_base_url}/cron/threshold-evaluator-simple"
+              headers = {
+                  "X-API-Key": cron_api_key,
+                  "Content-Type": "application/json"
+              }
+              print(f"[{datetime.now().isoformat()}] Using API key authentication")
+          elif cron_secret_key:
+              # Use time-based signature method
+              timestamp = int(time.time() / 60) * 60
+              signature = hmac.new(
+                  cron_secret_key.encode(),
+                  f"threshold_evaluator:{timestamp}".encode(),
+                  hashlib.sha256
+              ).hexdigest()
+              
+              url = f"{api_base_url}/cron/threshold-evaluator"
+              headers = {
+                  "X-Cron-Signature": signature,
+                  "Content-Type": "application/json"
+              }
+              print(f"[{datetime.now().isoformat()}] Using signature authentication")
+          else:
+              print("Error: No authentication credentials provided. Set either CRON_API_KEY or CRON_SECRET_KEY")
+              exit(1)
+          
+          # Make API call
+          print(f"[{datetime.now().isoformat()}] Triggering threshold evaluator at {url}")
+          
+          try:
+              response = requests.post(url, headers=headers)
+              print(f"Status code: {response.status_code}")
+              
+              if response.status_code == 200:
+                  response_json = response.json()
+                  print(f"Response: {json.dumps(response_json, indent=2)}")
+              else:
+                  print(f"Error response: {response.text}")
+          except Exception as e:
+              print(f"Exception: {str(e)}")
+          EOF
+          
+          # Run the script
+          python trigger_evaluator.py 

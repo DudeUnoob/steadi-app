@@ -7,6 +7,7 @@ from uuid import UUID
 from app.db.database import get_db
 from app.models.data_models.User import User
 from app.models.service_classes.AlertService import AlertService
+from app.models.service_classes.ThresholdService import ThresholdService
 from app.routers.auth import get_current_user
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
@@ -40,6 +41,34 @@ async def get_alert_counts(
     alert_service = AlertService(db)
     counts = alert_service.update_product_alert_levels(current_user.id)
     return counts
+
+@router.post("/evaluate-thresholds")
+async def evaluate_thresholds(
+    product_id: Optional[UUID] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Manually trigger threshold evaluation to recalculate reorder points and alert levels.
+    Can be run for a specific product or all products.
+    
+    - Formula: reorder_point = safety_stock + (avg_daily_sales × lead_time_days)
+    - Alert Levels: 
+      - RED if on_hand <= reorder_point
+      - YELLOW if on_hand <= reorder_point + safety_stock
+    """
+    threshold_service = ThresholdService(db)
+    results = threshold_service.evaluate_thresholds(product_id)
+    
+    
+    alert_service = AlertService(db)
+    alert_counts = alert_service.update_product_alert_levels(current_user.id)
+    
+    return {
+        "message": f"Evaluated thresholds for {len(results)} products",
+        "updated_products": results,
+        "alert_counts": alert_counts
+    }
 
 @router.get("/notifications", response_model=List[Dict[str, Any]])
 async def get_notifications(
