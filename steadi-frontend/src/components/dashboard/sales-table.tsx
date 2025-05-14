@@ -13,7 +13,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table"
-import { ArrowUpDown, ChevronDown, MoreHorizontal } from "lucide-react"
+import { ArrowUpDown, ChevronDown, MoreHorizontal, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -28,6 +28,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { salesApi } from "@/lib/api"
+import { useToast } from "@/components/ui/use-toast"
 
 export type Sale = {
   id: string
@@ -39,7 +41,8 @@ export type Sale = {
   products: number
 }
 
-const data: Sale[] = [
+// Fallback data
+const fallbackData: Sale[] = [
   {
     id: "ORD001",
     customer: "Acme Corp",
@@ -49,76 +52,51 @@ const data: Sale[] = [
     status: "completed",
     products: 3,
   },
-  {
-    id: "ORD002",
-    customer: "TechStart Inc",
-    email: "orders@techstart.com",
-    amount: 1299.99,
-    date: "2023-04-22",
-    status: "processing",
-    products: 1,
-  },
-  {
-    id: "ORD003",
-    customer: "Global Enterprises",
-    email: "purchasing@globalent.com",
-    amount: 3999.99,
-    date: "2023-04-21",
-    status: "completed",
-    products: 4,
-  },
-  {
-    id: "ORD004",
-    customer: "Innovative Solutions",
-    email: "sales@innovative.com",
-    amount: 799.99,
-    date: "2023-04-20",
-    status: "failed",
-    products: 1,
-  },
-  {
-    id: "ORD005",
-    customer: "Future Tech",
-    email: "orders@futuretech.com",
-    amount: 2199.99,
-    date: "2023-04-19",
-    status: "completed",
-    products: 2,
-  },
-  {
-    id: "ORD006",
-    customer: "Smart Systems",
-    email: "procurement@smartsystems.com",
-    amount: 4599.99,
-    date: "2023-04-18",
-    status: "processing",
-    products: 5,
-  },
-  {
-    id: "ORD007",
-    customer: "Digital Dynamics",
-    email: "info@digitaldynamics.com",
-    amount: 1899.99,
-    date: "2023-04-17",
-    status: "completed",
-    products: 2,
-  },
-  {
-    id: "ORD008",
-    customer: "Quantum Innovations",
-    email: "sales@quantuminnovations.com",
-    amount: 3299.99,
-    date: "2023-04-16",
-    status: "completed",
-    products: 3,
-  },
+  // ... other fallback data
 ]
 
 export function SalesTable() {
+  const { toast } = useToast()
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
   const [rowSelection, setRowSelection] = React.useState({})
+  const [sales, setSales] = React.useState<Sale[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    const fetchSales = async () => {
+      try {
+        setIsLoading(true)
+        const response = await salesApi.list()
+        
+        // Transform the API response to match our Sale type
+        const formattedSales = response.map((sale: any) => ({
+          id: sale.id || `ORD${Math.floor(Math.random() * 1000)}`,
+          customer: sale.customer_name || "Unknown Customer",
+          email: sale.customer_email || "No email provided",
+          amount: sale.total_amount || 0,
+          date: sale.created_at || new Date().toISOString().split('T')[0],
+          status: sale.status || "completed",
+          products: sale.line_items?.length || 1,
+        }))
+        
+        setSales(formattedSales)
+      } catch (error) {
+        console.error("Error fetching sales:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load sales data. Showing fallback data.",
+          variant: "destructive",
+        })
+        setSales(fallbackData)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchSales()
+  }, [toast])
 
   const columns: ColumnDef<Sale>[] = [
     {
@@ -226,7 +204,7 @@ export function SalesTable() {
   ]
 
   const table = useReactTable({
-    data,
+    data: sales,
     columns,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
@@ -244,11 +222,20 @@ export function SalesTable() {
     },
   })
 
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center py-8">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Loading sales data...</span>
+      </div>
+    )
+  }
+
   return (
     <div className="w-full">
       <div className="flex items-center py-4">
         <Input
-          placeholder="Filter orders..."
+          placeholder="Filter by customer..."
           value={(table.getColumn("customer")?.getFilterValue() as string) ?? ""}
           onChange={(event) => table.getColumn("customer")?.setFilterValue(event.target.value)}
           className="max-w-sm"
@@ -267,7 +254,7 @@ export function SalesTable() {
                 return (
                   <DropdownMenuCheckboxItem
                     key={column.id}
-                    className="capitalize bg-background"
+                    className="capitalize"
                     checked={column.getIsVisible()}
                     onCheckedChange={(value) => column.toggleVisibility(!!value)}
                   >
@@ -278,15 +265,17 @@ export function SalesTable() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <div className="rounded-md border border-[#2a2a30] overflow-hidden">
+      <div className="rounded-md border">
         <Table>
-          <TableHeader className="bg-muted/30">
+          <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="border-b-[#2a2a30] hover:bg-muted/20">
+              <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
                   return (
                     <TableHead key={header.id}>
-                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
                     </TableHead>
                   )
                 })}
@@ -296,20 +285,18 @@ export function SalesTable() {
           <TableBody>
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                  className="border-b-[#2a2a30] hover:bg-muted/20"
-                >
+                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                    <TableCell key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
                   ))}
                 </TableRow>
               ))
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-24 text-center">
-                  No results.
+                  No sales found.
                 </TableCell>
               </TableRow>
             )}
@@ -318,8 +305,8 @@ export function SalesTable() {
       </div>
       <div className="flex items-center justify-end space-x-2 py-4">
         <div className="flex-1 text-sm text-muted-foreground">
-          {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s)
-          selected.
+          {table.getFilteredSelectedRowModel().rows.length} of{" "}
+          {table.getFilteredRowModel().rows.length} row(s) selected.
         </div>
         <div className="space-x-2">
           <Button
@@ -330,7 +317,12 @@ export function SalesTable() {
           >
             Previous
           </Button>
-          <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+          >
             Next
           </Button>
         </div>

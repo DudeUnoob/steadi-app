@@ -15,13 +15,18 @@ class DashboardService:
         self.threshold_service = ThresholdService(db)
         self.analytics_service = AnalyticsService(db)
     
-    def get_inventory_dashboard(self, search: Optional[str] = None, page: int = 1, limit: int = 50) -> Dict[str, Any]:
+    def get_inventory_dashboard(self, search: Optional[str] = None, page: int = 1, limit: int = 50, user_id: UUID = None) -> Dict[str, Any]:
         """
         Get paginated inventory dashboard with search and analytics
         Returns items:[{sku, name, on_hand, reorder_point, badge, color, sales_trend, days_of_stock}]
         """
         # Get base inventory query
         query = select(Product)
+        
+        # Apply user filter if provided
+        if user_id:
+            query = query.where(Product.user_id == user_id)
+            
         if search:
             # Special case handling for "Candle X" type searches, to avoid "Candle 1" matching "Candle 11", etc.
             import re
@@ -55,6 +60,11 @@ class DashboardService:
         
         # Count total items
         count_query = select(func.count()).select_from(Product)
+        
+        # Apply user filter to count query
+        if user_id:
+            count_query = count_query.where(Product.user_id == user_id)
+            
         if search:
             # Same special case handling for count query
             import re
@@ -88,11 +98,18 @@ class DashboardService:
         # Get product IDs for batch processing
         product_ids = [product.id for product in products]
         
-        # Get sales history for all products in one query
-        batch_sales_history = self.analytics_service.get_batch_sales_history(product_ids, period=7)
+        # Get sales history for all products in one query, with user_id filter
+        batch_sales_history = self.analytics_service.get_batch_sales_history(
+            product_ids, 
+            period=7,
+            user_id=user_id
+        )
         
         # Get days of stock for all products in one query
-        batch_days_of_stock = self.threshold_service.calculate_batch_days_of_stock(product_ids)
+        batch_days_of_stock = self.threshold_service.calculate_batch_days_of_stock(
+            product_ids,
+            user_id=user_id
+        )
         
         # Process each product (now using the batch results)
         inventory_items = []
@@ -131,13 +148,20 @@ class DashboardService:
             "pages": (total + limit - 1) // limit
         }
     
-    def get_sales_analytics(self, period: int = 7) -> Dict[str, Any]:
+    def get_sales_analytics(self, period: int = 7, user_id: UUID = None) -> Dict[str, Any]:
         """Get sales analytics for the specified period"""
         # Get top sellers
-        top_sellers = self.analytics_service.get_top_sellers(limit=5, period=period)
+        top_sellers = self.analytics_service.get_top_sellers(
+            limit=5, 
+            period=period,
+            user_id=user_id
+        )
         
         # Calculate overall turnover rate
-        turnover_rate = self.analytics_service.calculate_turnover_rate(period=period)
+        turnover_rate = self.analytics_service.calculate_turnover_rate(
+            period=period,
+            user_id=user_id
+        )
         
         return {
             "top_sellers": top_sellers,
@@ -145,8 +169,11 @@ class DashboardService:
             "period_days": period
         }
     
-    def seed_test_data(self) -> Dict[str, str]:
+    def seed_test_data(self, user_id: UUID) -> Dict[str, str]:
         """Delegate to appropriate services to seed test data"""
         # This would typically call methods from inventory, supplier, and sales services
         # For simplicity, we'll just return a message
-        return {"message": "Test data creation should be handled by specialized services"} 
+        return {
+            "message": "Test data creation should be handled by specialized services",
+            "user_id": str(user_id) if user_id else None
+        } 

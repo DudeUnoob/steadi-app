@@ -13,7 +13,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table"
-import { ArrowUpDown, ChevronDown, MoreHorizontal } from "lucide-react"
+import { ArrowUpDown, ChevronDown, MoreHorizontal, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -28,6 +28,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { suppliersApi } from "@/lib/api"
+import { useToast } from "@/components/ui/use-toast"
 
 export type Supplier = {
   id: string
@@ -39,7 +41,8 @@ export type Supplier = {
   lastDelivery: string
 }
 
-const data: Supplier[] = [
+// Fallback data
+const fallbackData: Supplier[] = [
   {
     id: "SUP001",
     name: "TechPro Solutions",
@@ -49,67 +52,51 @@ const data: Supplier[] = [
     performance: "excellent",
     lastDelivery: "2023-04-23",
   },
-  {
-    id: "SUP002",
-    name: "Global Logistics Inc.",
-    email: "orders@globallogistics.com",
-    status: "active",
-    products: 18,
-    performance: "good",
-    lastDelivery: "2023-04-18",
-  },
-  {
-    id: "SUP003",
-    name: "Innovative Materials",
-    email: "sales@innovativematerials.com",
-    status: "inactive",
-    products: 12,
-    performance: "poor",
-    lastDelivery: "2023-03-05",
-  },
-  {
-    id: "SUP004",
-    name: "Quality Components Ltd.",
-    email: "info@qualitycomponents.com",
-    status: "active",
-    products: 32,
-    performance: "excellent",
-    lastDelivery: "2023-04-21",
-  },
-  {
-    id: "SUP005",
-    name: "Precision Manufacturing",
-    email: "orders@precisionmfg.com",
-    status: "pending",
-    products: 8,
-    performance: "average",
-    lastDelivery: "2023-04-10",
-  },
-  {
-    id: "SUP006",
-    name: "EcoFriendly Packaging",
-    email: "sales@ecofriendly.com",
-    status: "active",
-    products: 15,
-    performance: "good",
-    lastDelivery: "2023-04-15",
-  },
-  {
-    id: "SUP007",
-    name: "Digital Solutions Group",
-    email: "support@digitalsolutions.com",
-    status: "active",
-    products: 21,
-    performance: "excellent",
-    lastDelivery: "2023-04-22",
-  },
+  // ... other fallback data
 ]
 
 export function SuppliersTable() {
+  const { toast } = useToast()
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
   const [rowSelection, setRowSelection] = React.useState({})
+  const [suppliers, setSuppliers] = React.useState<Supplier[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    const fetchSuppliers = async () => {
+      try {
+        setIsLoading(true)
+        const response = await suppliersApi.list()
+        
+        // Transform the API response to match our Supplier type
+        const formattedSuppliers = response.map((supplier: any) => ({
+          id: supplier.id,
+          name: supplier.name,
+          email: supplier.email || 'N/A',
+          status: supplier.is_active ? 'active' : 'inactive',
+          products: supplier.product_count || 0,
+          performance: supplier.performance || 'average',
+          lastDelivery: supplier.last_delivery_date || new Date().toISOString().split('T')[0],
+        }))
+        
+        setSuppliers(formattedSuppliers)
+      } catch (error) {
+        console.error("Error fetching suppliers:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load suppliers. Showing fallback data.",
+          variant: "destructive",
+        })
+        setSuppliers(fallbackData)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchSuppliers()
+  }, [toast])
 
   const columns: ColumnDef<Supplier>[] = [
     {
@@ -229,7 +216,7 @@ export function SuppliersTable() {
   ]
 
   const table = useReactTable({
-    data,
+    data: suppliers,
     columns,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
@@ -246,6 +233,15 @@ export function SuppliersTable() {
       rowSelection,
     },
   })
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center py-8">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Loading suppliers...</span>
+      </div>
+    )
+  }
 
   return (
     <div className="w-full">
@@ -270,7 +266,7 @@ export function SuppliersTable() {
                 return (
                   <DropdownMenuCheckboxItem
                     key={column.id}
-                    className="capitalize bg-background"
+                    className="capitalize"
                     checked={column.getIsVisible()}
                     onCheckedChange={(value) => column.toggleVisibility(!!value)}
                   >
@@ -281,15 +277,17 @@ export function SuppliersTable() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <div className="rounded-md border border-[#2a2a30] overflow-hidden">
+      <div className="rounded-md border">
         <Table>
-          <TableHeader className="bg-muted/30">
+          <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="border-b-[#2a2a30] hover:bg-muted/20">
+              <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
                   return (
                     <TableHead key={header.id}>
-                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
                     </TableHead>
                   )
                 })}
@@ -299,20 +297,18 @@ export function SuppliersTable() {
           <TableBody>
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                  className="border-b-[#2a2a30] hover:bg-muted/20"
-                >
+                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                    <TableCell key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
                   ))}
                 </TableRow>
               ))
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-24 text-center">
-                  No results.
+                  No suppliers found.
                 </TableCell>
               </TableRow>
             )}
@@ -321,8 +317,8 @@ export function SuppliersTable() {
       </div>
       <div className="flex items-center justify-end space-x-2 py-4">
         <div className="flex-1 text-sm text-muted-foreground">
-          {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s)
-          selected.
+          {table.getFilteredSelectedRowModel().rows.length} of{" "}
+          {table.getFilteredRowModel().rows.length} row(s) selected.
         </div>
         <div className="space-x-2">
           <Button
@@ -333,7 +329,12 @@ export function SuppliersTable() {
           >
             Previous
           </Button>
-          <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+          >
             Next
           </Button>
         </div>

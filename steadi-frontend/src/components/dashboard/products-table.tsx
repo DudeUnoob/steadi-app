@@ -13,7 +13,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table"
-import { ArrowUpDown, ChevronDown, MoreHorizontal } from "lucide-react"
+import { ArrowUpDown, ChevronDown, MoreHorizontal, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -28,6 +28,8 @@ import {
 import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { productsApi, dashboardApi } from "@/lib/api"
+import { useToast } from "@/components/ui/use-toast"
 
 export type Product = {
   id: string
@@ -39,7 +41,8 @@ export type Product = {
   supplier: string
 }
 
-const data: Product[] = [
+// Fallback data
+const fallbackData: Product[] = [
   {
     id: "PROD001",
     name: "Smart Inventory Manager",
@@ -49,76 +52,62 @@ const data: Product[] = [
     status: "in-stock",
     supplier: "TechPro Solutions",
   },
-  {
-    id: "PROD002",
-    name: "Supply Chain Optimizer",
-    category: "Software",
-    price: 999.99,
-    stock: 35,
-    status: "in-stock",
-    supplier: "Digital Solutions Group",
-  },
-  {
-    id: "PROD003",
-    name: "AI Sales Assistant",
-    category: "Service",
-    price: 499.99,
-    stock: 10,
-    status: "low-stock",
-    supplier: "TechPro Solutions",
-  },
-  {
-    id: "PROD004",
-    name: "Customer Insights Pro",
-    category: "Analytics",
-    price: 799.99,
-    stock: 25,
-    status: "in-stock",
-    supplier: "Digital Solutions Group",
-  },
-  {
-    id: "PROD005",
-    name: "Eco-Friendly Packaging",
-    category: "Materials",
-    price: 199.99,
-    stock: 0,
-    status: "out-of-stock",
-    supplier: "EcoFriendly Packaging",
-  },
-  {
-    id: "PROD006",
-    name: "Logistics Management Suite",
-    category: "Software",
-    price: 1499.99,
-    stock: 15,
-    status: "in-stock",
-    supplier: "Global Logistics Inc.",
-  },
-  {
-    id: "PROD007",
-    name: "Premium Component Kit",
-    category: "Hardware",
-    price: 349.99,
-    stock: 5,
-    status: "low-stock",
-    supplier: "Quality Components Ltd.",
-  },
-  {
-    id: "PROD008",
-    name: "Business Intelligence Dashboard",
-    category: "Analytics",
-    price: 899.99,
-    stock: 20,
-    status: "in-stock",
-    supplier: "Digital Solutions Group",
-  },
+  // ... other fallback data
 ]
 
 export function ProductsTable() {
+  const { toast } = useToast()
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
   const [columnVisibility, setColumnVisibility] = React.useState<VisibilityState>({})
   const [rowSelection, setRowSelection] = React.useState({})
+  const [products, setProducts] = React.useState<Product[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+
+  React.useEffect(() => {
+    const fetchProducts = async () => {
+      try {
+        setIsLoading(true)
+        // Use the inventory dashboard endpoint to get product data with stock status
+        const response = await dashboardApi.getInventoryDashboard()
+        
+        // Transform the API response to match our Product type
+        const formattedProducts = response.items.map((product: any) => {
+          // Determine status based on stock level
+          let status: "in-stock" | "low-stock" | "out-of-stock" = "in-stock"
+          if (product.on_hand <= 0) {
+            status = "out-of-stock"
+          } else if (product.badge === "YELLOW" || product.badge === "RED") {
+            status = "low-stock"
+          }
+          
+          return {
+            id: product.sku,
+            name: product.name,
+            category: product.category || "General",
+            price: product.price || 0,
+            stock: product.on_hand,
+            status,
+            supplier: product.supplier_name || "Unknown",
+          }
+        })
+        
+        setProducts(formattedProducts)
+      } catch (error) {
+        console.error("Error fetching products:", error)
+        toast({
+          title: "Error",
+          description: "Failed to load products. Showing fallback data.",
+          variant: "destructive",
+        })
+        setProducts(fallbackData)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+
+    fetchProducts()
+  }, [toast])
 
   const columns: ColumnDef<Product>[] = [
     {
@@ -232,7 +221,7 @@ export function ProductsTable() {
   ]
 
   const table = useReactTable({
-    data,
+    data: products,
     columns,
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
@@ -249,6 +238,15 @@ export function ProductsTable() {
       rowSelection,
     },
   })
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center items-center py-8">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Loading products...</span>
+      </div>
+    )
+  }
 
   return (
     <div className="w-full">
@@ -273,7 +271,7 @@ export function ProductsTable() {
                 return (
                   <DropdownMenuCheckboxItem
                     key={column.id}
-                    className="capitalize bg-background"
+                    className="capitalize"
                     checked={column.getIsVisible()}
                     onCheckedChange={(value) => column.toggleVisibility(!!value)}
                   >
@@ -284,15 +282,17 @@ export function ProductsTable() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      <div className="rounded-md border border-[#2a2a30] overflow-hidden">
+      <div className="rounded-md border">
         <Table>
-          <TableHeader className="bg-muted/30">
+          <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id} className="border-b-[#2a2a30] hover:bg-muted/20">
+              <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
                   return (
                     <TableHead key={header.id}>
-                      {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(header.column.columnDef.header, header.getContext())}
                     </TableHead>
                   )
                 })}
@@ -302,20 +302,18 @@ export function ProductsTable() {
           <TableBody>
             {table.getRowModel().rows?.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  data-state={row.getIsSelected() && "selected"}
-                  className="border-b-[#2a2a30] hover:bg-muted/20"
-                >
+                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</TableCell>
+                    <TableCell key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
                   ))}
                 </TableRow>
               ))
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-24 text-center">
-                  No results.
+                  No products found.
                 </TableCell>
               </TableRow>
             )}
@@ -324,8 +322,8 @@ export function ProductsTable() {
       </div>
       <div className="flex items-center justify-end space-x-2 py-4">
         <div className="flex-1 text-sm text-muted-foreground">
-          {table.getFilteredSelectedRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s)
-          selected.
+          {table.getFilteredSelectedRowModel().rows.length} of{" "}
+          {table.getFilteredRowModel().rows.length} row(s) selected.
         </div>
         <div className="space-x-2">
           <Button
@@ -336,7 +334,12 @@ export function ProductsTable() {
           >
             Previous
           </Button>
-          <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+          >
             Next
           </Button>
         </div>

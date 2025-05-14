@@ -45,7 +45,8 @@ async def get_inventory_dashboard(
     return dashboard_service.get_inventory_dashboard(
         search=search,
         page=page,
-        limit=limit
+        limit=limit,
+        user_id=current_user.id
     )
 
 @router.get("/analytics/sales")
@@ -56,4 +57,7 @@ async def get_sales_analytics(
 ):
     """Get sales analytics for the specified period"""
     dashboard_service = DashboardService(db)
-    return dashboard_service.get_sales_analytics(period=period) 
+    return dashboard_service.get_sales_analytics(
+        period=period, 
+        user_id=current_user.id
+    ) 

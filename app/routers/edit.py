@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from sqlmodel import Session, select
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
@@ -138,6 +138,7 @@ async def delete_product(
 # Supplier endpoints
 @router.get("/suppliers", response_model=List[Supplier])
 async def list_suppliers(
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):

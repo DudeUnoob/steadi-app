@@ -11,7 +11,7 @@ class AnalyticsService:
     def __init__(self, db: Session):
         self.db = db
     
-    def calculate_turnover_rate(self, product_id: Optional[UUID] = None, period: int = 30) -> Dict[str, Any]:
+    def calculate_turnover_rate(self, product_id: Optional[UUID] = None, period: int = 30, user_id: UUID = None) -> Dict[str, Any]:
         """Calculate inventory turnover rate
         turnover_rate = cost_of_goods_sold ÷ avg_inventory_value
         """
@@ -22,11 +22,18 @@ class AnalyticsService:
         # Base query for cost of goods sold
         if product_id:
             # For a specific product
-            products = [self.db.exec(select(Product).where(Product.id == product_id)).first()]
-            if not products[0]:
-                raise ValueError(f"Product with ID {product_id} not found")
+            product_query = select(Product).where(Product.id == product_id)
+            if user_id:
+                product_query = product_query.where(Product.user_id == user_id)
                 
-            # Get sales for the period
+            products = [self.db.exec(product_query).first()]
+            if not products[0]:
+                if user_id:
+                    raise ValueError(f"Product with ID {product_id} not found or you don't have permission to access it")
+                else:
+                    raise ValueError(f"Product with ID {product_id} not found")
+                
+            # Get sales for the period with user filter if needed
             sales_query = select(
                 Sale.product_id,
                 func.sum(Sale.quantity).label("total_quantity")
@@ -34,20 +41,34 @@ class AnalyticsService:
                 (Sale.product_id == product_id) &
                 (Sale.sale_date >= start_date) &
                 (Sale.sale_date <= end_date)
-            ).group_by(Sale.product_id)
+            )
+            
+            if user_id:
+                sales_query = sales_query.where(Sale.user_id == user_id)
+                
+            sales_query = sales_query.group_by(Sale.product_id)
             
         else:
-            # For all products
-            products = self.db.exec(select(Product)).all()
+            # For all products, filtered by user if provided
+            product_query = select(Product)
+            if user_id:
+                product_query = product_query.where(Product.user_id == user_id)
+                
+            products = self.db.exec(product_query).all()
             
-            # Get sales for all products in the period
+            # Get sales for all products in the period with user filter if needed
             sales_query = select(
                 Sale.product_id,
                 func.sum(Sale.quantity).label("total_quantity")
             ).where(
                 (Sale.sale_date >= start_date) &
                 (Sale.sale_date <= end_date)
-            ).group_by(Sale.product_id)
+            )
+            
+            if user_id:
+                sales_query = sales_query.where(Sale.user_id == user_id)
+                
+            sales_query = sales_query.group_by(Sale.product_id)
         
         # Execute sales query
         sales_results = {
@@ -102,7 +123,7 @@ class AnalyticsService:
             "products": turnover_rates
         }
     
-    def get_top_sellers(self, limit: int = 10, period: int = 30) -> List[Dict[str, Any]]:
+    def get_top_sellers(self, limit: int = 10, period: int = 30, user_id: UUID = None) -> List[Dict[str, Any]]:
         """Get top selling products"""
         # Define date range
         end_date = datetime.utcnow()
@@ -115,7 +136,13 @@ class AnalyticsService:
         ).where(
             (Sale.sale_date >= start_date) &
             (Sale.sale_date <= end_date)
-        ).group_by(
+        )
+        
+        # Apply user filter if provided
+        if user_id:
+            query = query.where(Sale.user_id == user_id)
+            
+        query = query.group_by(
             Sale.product_id
         ).order_by(
             func.sum(Sale.quantity).desc()
@@ -127,7 +154,11 @@ class AnalyticsService:
         # Format results with product details
         top_sellers = []
         for result in results:
-            product = self.db.exec(select(Product).where(Product.id == result.product_id)).first()
+            product_query = select(Product).where(Product.id == result.product_id)
+            if user_id:
+                product_query = product_query.where(Product.user_id == user_id)
+                
+            product = self.db.exec(product_query).first()
             if product:
                 top_sellers.append({
                     "product_id": str(product.id),
@@ -139,11 +170,19 @@ class AnalyticsService:
         
         return top_sellers
     
-    def get_batch_sales_history(self, product_ids: List[UUID], period: int = 7) -> Dict[UUID, List[Dict[str, Any]]]:
+    def get_batch_sales_history(self, product_ids: List[UUID], period: int = 7, user_id: UUID = None) -> Dict[UUID, List[Dict[str, Any]]]:
         """Get sales history for multiple products at once"""
         # Define date range
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=period)
+        
+        # Filter products by user_id if provided
+        if user_id:
+            valid_products = self.db.exec(select(Product.id).where(
+                (Product.id.in_(product_ids)) &
+                (Product.user_id == user_id)
+            )).all()
+            product_ids = [p.id for p in valid_products]
         
         # Initialize the result dictionary for all products
         result_dict = {}
@@ -168,7 +207,13 @@ class AnalyticsService:
             (Sale.product_id.in_(product_ids)) &
             (Sale.sale_date >= start_date) &
             (Sale.sale_date <= end_date)
-        ).group_by(
+        )
+        
+        # Apply user filter if provided
+        if user_id:
+            query = query.where(Sale.user_id == user_id)
+            
+        query = query.group_by(
             Sale.product_id,
             func.date_trunc('day', Sale.sale_date)
         )
@@ -192,16 +237,23 @@ class AnalyticsService:
         
         return result_dict
     
-    def get_sales_history(self, product_id: UUID, period: int = 7) -> List[Dict[str, Any]]:
+    def get_sales_history(self, product_id: UUID, period: int = 7, user_id: UUID = None) -> List[Dict[str, Any]]:
         """Get sales history for product"""
         # Define date range
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=period)
         
-        # Verify product exists
-        product = self.db.exec(select(Product).where(Product.id == product_id)).first()
+        # Verify product exists and belongs to user if user_id provided
+        product_query = select(Product).where(Product.id == product_id)
+        if user_id:
+            product_query = product_query.where(Product.user_id == user_id)
+            
+        product = self.db.exec(product_query).first()
         if not product:
-            raise ValueError(f"Product with ID {product_id} not found")
+            if user_id:
+                raise ValueError(f"Product with ID {product_id} not found or you don't have permission to access it")
+            else:
+                raise ValueError(f"Product with ID {product_id} not found")
         
         # Prepare result structure (initialize with zero sales for all days)
         sales_history = []
@@ -220,7 +272,13 @@ class AnalyticsService:
             (Sale.product_id == product_id) &
             (Sale.sale_date >= start_date) &
             (Sale.sale_date <= end_date)
-        ).group_by(
+        )
+        
+        # Apply user filter if provided
+        if user_id:
+            query = query.where(Sale.user_id == user_id)
+            
+        query = query.group_by(
             func.date_trunc('day', Sale.sale_date)
         )
         
