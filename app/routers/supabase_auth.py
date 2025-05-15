@@ -45,41 +45,56 @@ router = APIRouter(
 
 @router.get("/me", response_model=UserRead)
 async def get_supabase_user_info(
-    supabase_user: Dict[str, Any] = Depends(get_current_supabase_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Get the current authenticated Supabase user's information"""
-    
-    supabase_id = supabase_user.get("id")
-    if not supabase_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Supabase user information"
-        )
-    
-    user = db.exec(select(User).where(User.supabase_id == supabase_id)).first()
-    
-    if not user:
-        email = supabase_user.get("email")
+    try:
+        # Get the supabase user from the token
+        supabase_user = await get_current_supabase_user(request)
         
-        if not email:
+        supabase_id = supabase_user.get("id")
+        if not supabase_id:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Email is required"
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Supabase user information"
             )
         
-        user = User(
-            email=email,
-            supabase_id=supabase_id,
-            password_hash=SUPABASE_USER_PASSWORD_PLACEHOLDER,
-            id=uuid.uuid4()
-        )
+        logger.info(f"Getting user info for Supabase ID: {supabase_id}")
         
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    
-    return user
+        # Find or create the user in our database
+        user = db.exec(select(User).where(User.supabase_id == supabase_id)).first()
+        
+        if not user:
+            email = supabase_user.get("email")
+            
+            if not email:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email is required"
+                )
+            
+            logger.info(f"Creating new user with email: {email} and Supabase ID: {supabase_id}")
+            
+            user = User(
+                email=email,
+                supabase_id=supabase_id,
+                password_hash=SUPABASE_USER_PASSWORD_PLACEHOLDER,
+                id=uuid.uuid4()
+            )
+            
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            logger.info(f"Created new user with ID: {user.id}")
+        
+        return user
+    except Exception as e:
+        logger.error(f"Error getting user info: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving user information: {str(e)}"
+        )
 
 @router.post("/sync", response_model=Token)
 async def sync_supabase_user(
@@ -206,12 +221,12 @@ async def sync_supabase_user(
         logger.error(f"Error syncing user: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error syncing user: {str(e)}"
+            detail=f"Unexpected error: {str(e)}"
         )
 
 @router.post("/logout")
 async def logout(
-    supabase_user: Dict[str, Any] = Depends(get_optional_supabase_user)
+    request: Request
 ):
     
     if supabase_user:

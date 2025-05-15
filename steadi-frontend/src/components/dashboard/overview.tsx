@@ -2,7 +2,8 @@
 
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "@/components/ui/chart"
 
-const data = [
+// Default data if no data is passed in
+const defaultData = [
   {
     name: "Jan",
     total: 18000,
@@ -53,10 +54,22 @@ const data = [
   },
 ]
 
-export function Overview() {
+interface OverviewProps {
+  salesData?: Array<{ month: string; revenue: number }>
+}
+
+export function Overview({ salesData = [] }: OverviewProps) {
+  // Transform API data to match the chart format
+  const chartData = salesData.length > 0
+    ? salesData.map(item => ({
+        name: item.month,
+        total: item.revenue
+      }))
+    : defaultData
+
   return (
     <ResponsiveContainer width="100%" height={350}>
-      <BarChart data={data}>
+      <BarChart data={chartData}>
         <defs>
           <linearGradient id="colorGradient" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor="#ff5757" stopOpacity={0.9} />

@@ -7,39 +7,58 @@ from typing import Optional, Dict, Any
 from jose import jwt
 from dotenv import load_dotenv
 import logging
-
+import logging
 
 load_dotenv()
 
+# Set up logger
+logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
+# Debug mode for development - set to False in production
+DEBUG_MODE = False
 
+# Supabase configuration - strip whitespace to handle formatting issues
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET", "").strip().replace(" ", "")
+SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", "").strip().replace(" ", "")
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", )
-SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET",)
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY", )
-
-
+# Extract project reference from URL
 SUPABASE_PROJECT_REF = SUPABASE_URL.split('.')[-2].split('/')[-1] if SUPABASE_URL else ""
 
+# Log configuration for diagnostics
+logger.info(f"Supabase URL: {SUPABASE_URL}")
+logger.info(f"Supabase Project Ref: {SUPABASE_PROJECT_REF}")
+logger.info(f"Supabase JWT Secret length: {len(SUPABASE_JWT_SECRET)} chars")
+logger.info(f"Supabase Anon Key length: {len(SUPABASE_ANON_KEY)} chars")
 
 security = HTTPBearer()
 
+# Debug default user for development only
+DEBUG_DEFAULT_USER = {
+    "id": "00000000-0000-0000-0000-000000000000",
+    "email": "debug@example.com",
+    "role": "owner"
+}
+
 def format_jwt_secret(jwt_secret: str) -> str:
     """Format JWT secret for decoding"""
-    
     if not jwt_secret:
+        logger.error("JWT secret is empty")
         return ""
-        
     
+    # Add padding if needed
     padding = 4 - (len(jwt_secret) % 4)
     if padding < 4:
         jwt_secret += "=" * padding
-        
     
     try:
+        # Attempt to decode base64
         decoded = base64.b64decode(jwt_secret).decode('utf-8')
+        logger.debug("Successfully formatted JWT secret")
         return decoded
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Error formatting JWT secret: {str(e)}, using original")
         return jwt_secret
 
 # Add this to improve logging
@@ -47,7 +66,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 async def fetch_supabase_user_info(token: str) -> dict:
-    """Fetch user info from Supabase"""
+    """Fetch user info from Supabase auth API"""
+    # Debug mode check
+    if DEBUG_MODE and (len(token) < 20 or token == "debug_token"):
+        logger.warning("DEBUG MODE: Using fake user data for development")
+        return DEBUG_DEFAULT_USER
+    
+    # Verify Supabase configuration
     if not SUPABASE_URL or not SUPABASE_ANON_KEY:
         logger.error("Supabase configuration is missing")
         raise HTTPException(
@@ -113,6 +138,7 @@ async def fetch_supabase_user_info(token: str) -> dict:
 def verify_supabase_token(token: str) -> dict:
     """Verify Supabase JWT token - simplified version"""
     try:
+        # Check for JWT secret
         if not SUPABASE_JWT_SECRET:
             logger.error("Supabase JWT secret is missing")
             raise ValueError("JWT secret is missing from configuration")
@@ -175,33 +201,68 @@ def verify_supabase_token(token: str) -> dict:
 
 async def get_supabase_user(request: Request) -> Dict[str, Any]:
     """Get and validate the Supabase user from the Authorization header"""
+    # Debug mode check
+    if DEBUG_MODE:
+        # Check for debug header
+        debug_header = request.headers.get("X-Debug-Auth")
+        if debug_header == "true":
+            logger.warning("DEBUG MODE: Bypassing authentication with debug header")
+            return DEBUG_DEFAULT_USER
+    
+    # Check for Authorization header
     if "Authorization" not in request.headers:
+        if DEBUG_MODE:
+            logger.warning("DEBUG MODE: No auth header, using default debug user")
+            return DEBUG_DEFAULT_USER
+        
+        logger.error("No authentication credentials provided")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="No authentication credentials provided"
         )
     
+    # Parse Authorization header
     auth_header = request.headers.get("Authorization")
     if not auth_header.startswith("Bearer "):
+        if DEBUG_MODE:
+            logger.warning("DEBUG MODE: Invalid auth scheme, using default debug user")
+            return DEBUG_DEFAULT_USER
+        
+        logger.error("Invalid authentication scheme")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid authentication scheme"
         )
     
-    token = auth_header.replace("Bearer ", "")
+    # Extract token
+    token = auth_header.replace("Bearer ", "").strip()
     
     if not token:
+        if DEBUG_MODE:
+            logger.warning("DEBUG MODE: Empty token, using default debug user")
+            return DEBUG_DEFAULT_USER
+        
+        logger.error("No token provided")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="No token provided"
         )
     
     try:
+        # Fetch user info from Supabase
         user_info = await fetch_supabase_user_info(token)
         return user_info
     except HTTPException:
+        if DEBUG_MODE:
+            logger.warning("DEBUG MODE: Authentication error, using default debug user")
+            return DEBUG_DEFAULT_USER
         raise
     except Exception as e:
+        if DEBUG_MODE:
+            logger.warning(f"DEBUG MODE: Error validating token: {str(e)}, using default debug user")
+            return DEBUG_DEFAULT_USER
+        
+        logger.error(f"Error validating token: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Error validating token: {str(e)}"
@@ -283,9 +344,11 @@ async def get_optional_supabase_user(request: Request) -> Optional[dict]:
     return None
 
 async def cleanup_user_session(supabase_id: str) -> None:
-    """
+    """Clean up user session data
+    
     Args:
         supabase_id: The Supabase user ID
     """
-   
+    logger.info(f"Cleaning up session for user with Supabase ID: {supabase_id}")
+    # Implement any session cleanup logic here if needed
     pass 

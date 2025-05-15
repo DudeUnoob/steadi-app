@@ -1,30 +1,5 @@
 .env
-/app/routers/__pycache__
-/app/models/__pycache__
-/app/models/data_models/__pycache__
-/app/models/enums/__pycache__
 
-/app/__pycache__ 
 
 .venv/
 venv/
-app/models/service_classes/__pycache__
-app/api/mvp/__pycache__
-app/routers/__pycache__
-app/__pycache__
-app/schemas/__pycache__
-app/api/schemas/__pycache__
-app/schemas/data_models/__pycache__
-app/schemas/data_models/data_models/__pycache__
-app/schemas/data_models/enums/__pycache__
-app/schemas/data_models/service_classes/__pycache__
-app/schemas/data_models/service_classes/service_classes/__pycache__
-app/api/mvp/__pycache__
-app/api/schemas/__pycache__
-app/api/schemas/data_models/__pycache__
-app/api/schemas/data_models/data_models/__pycache__
-app/api/schemas/data_models/enums/__pycache__
-app/api/schemas/data_models/service_classes/__pycache__
-app/api/schemas/data_models/service_classes/service_classes/__pycache__
-
-app/schemas/data_models/__pycache__
