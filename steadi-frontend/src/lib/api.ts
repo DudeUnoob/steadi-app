@@ -69,6 +69,7 @@ const getAuthHeaders = async (): Promise<AuthHeaders> => {
   }
 
   try {
+    // Get Supabase session
     const { data: { session } } = await supabase.auth.getSession();
     
     if (!session || !session.access_token) {
@@ -83,36 +84,54 @@ const getAuthHeaders = async (): Promise<AuthHeaders> => {
       
       console.log('Session refreshed successfully. New token expires at:', new Date(refreshData.session.expires_at! * 1000).toISOString());
       
-      // Return headers with refreshed token
+      // Exchange Supabase token for backend token
+      const exchangeResponse = await fetch(`${API_URL}/supabase-auth/token`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${refreshData.session.access_token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (!exchangeResponse.ok) {
+        throw new Error('Failed to exchange token with backend');
+      }
+      
+      const tokenData = await exchangeResponse.json();
+      
       return {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${refreshData.session.access_token}`,
-        // Also include the apikey which might be required for Supabase operations
+        'Authorization': `Bearer ${tokenData.access_token}`,
         'apikey': SUPABASE_ANON_KEY,
       };
     }
     
-    // If we have a session, use the access token directly
-    // Also, log token for debugging (first 10 chars only)
-    const tokenPreview = session.access_token.substring(0, 10) + '...';
-    const expiresAt = new Date(session.expires_at! * 1000);
-    console.log(`Using access token: ${tokenPreview}, expires: ${expiresAt.toISOString()}`);
+    // Exchange Supabase token for backend token
+    const exchangeResponse = await fetch(`${API_URL}/supabase-auth/token`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${session.access_token}`,
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    if (!exchangeResponse.ok) {
+      throw new Error('Failed to exchange token with backend');
+    }
+    
+    const tokenData = await exchangeResponse.json();
     
     // Cache the token for debug purposes
-    cachedToken = session.access_token;
+    cachedToken = tokenData.access_token;
     
     return {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
-      // Include Supabase anon key if available
+      'Authorization': `Bearer ${tokenData.access_token}`,
       'apikey': SUPABASE_ANON_KEY,
     };
-  } catch (error: unknown) {
+  } catch (error) {
     console.error('Auth header retrieval error:', error instanceof Error ? error.message : error);
-    // Return basic headers without auth token
-    return {
-      'Content-Type': 'application/json',
-    };
+    throw new Error('Could not validate credentials - token processing issue');
   }
 };
 

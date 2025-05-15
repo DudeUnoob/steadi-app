@@ -244,64 +244,56 @@ async def get_local_token_from_supabase(
     request: Request,
     db: Session = Depends(get_db)
 ):
-    """
-    Convert a Supabase JWT token to a local JWT token.
-    
-    This allows Supabase-authenticated users to get a local token
-    that works with all endpoints in the application.
-    """
-    supabase_user = await get_current_supabase_user(request)
-    
-    if not supabase_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid Supabase authentication"
-        )
-    
-    supabase_id = supabase_user.get("id")
-    email = supabase_user.get("email")
-    
-    if not supabase_id or not email:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Supabase token is missing required user information"
-        )
-    
-    # Find or create user in the database
-    user = db.exec(select(User).where(User.supabase_id == supabase_id)).first()
-    
-    if not user:
-        # Try to find by email
-        user = db.exec(select(User).where(User.email == email)).first()
+    """Exchange Supabase token for a local JWT token"""
+    try:
+        # Get the Supabase user from the token
+        supabase_user = await get_current_supabase_user(request)
         
-        if user:
-            # Update existing user with Supabase ID
-            user.supabase_id = supabase_id
-        else:
-            # Extract role from user metadata if available
-            user_metadata = supabase_user.get("user_metadata", {})
-            role_str = user_metadata.get("role")
-            role = convert_role_to_enum(role_str) if role_str else UserRole.STAFF
+        if not supabase_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Supabase token"
+            )
+        
+        supabase_id = supabase_user.get("id")
+        if not supabase_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid Supabase user information"
+            )
+        
+        # Find or create the user in our database
+        user = db.exec(select(User).where(User.supabase_id == supabase_id)).first()
+        
+        if not user:
+            email = supabase_user.get("email")
+            if not email:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Email is required"
+                )
             
             # Create new user
             user = User(
                 email=email,
                 supabase_id=supabase_id,
                 password_hash=SUPABASE_USER_PASSWORD_PLACEHOLDER,
-                id=uuid.uuid4(),
-                role=role
+                id=uuid.uuid4()
             )
+            
+            db.add(user)
+            db.commit()
+            db.refresh(user)
         
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    
-    # Generate local JWT tokens
-    access_token = create_access_token(data={"sub": str(user.id), "role": user.role})
-    refresh_token = create_refresh_token(data={"sub": str(user.id)})
-    
-    return Token(
-        access_token=access_token,
-        refresh_token=refresh_token,
-        token_type="bearer"
-    )
+        # Create local JWT tokens
+        access_token = create_access_token(data={"sub": str(user.id), "role": user.role})
+        refresh_token = create_refresh_token(data={"sub": str(user.id)})
+        
+        return Token(access_token=access_token, refresh_token=refresh_token)
+        
+    except Exception as e:
+        logger.error(f"Error exchanging token: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials"
+        )
