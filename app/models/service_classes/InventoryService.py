@@ -11,12 +11,16 @@ class InventoryService:
     def __init__(self, db: Session):
         self.db = db
     
-    def update_inventory(self, sku: str, quantity_delta: int, source: str, reference_id: Optional[str] = None) -> Product:
+    def update_inventory(self, sku: str, quantity_delta: int, source: str, reference_id: Optional[str] = None, user_id: UUID = None) -> Product:
         """Update inventory levels with audit trail"""
-        # Find the product
-        product = self.db.exec(select(Product).where(Product.sku == sku)).first()
+        # Find the product, filtered by user_id if provided
+        query = select(Product).where(Product.sku == sku)
+        if user_id:
+            query = query.where(Product.user_id == user_id)
+            
+        product = self.db.exec(query).first()
         if not product:
-            raise ValueError(f"Product with SKU {sku} not found")
+            raise ValueError(f"Product with SKU {sku} not found or you don't have permission to access it")
         
         # Calculate new quantity
         new_quantity = max(0, product.on_hand + quantity_delta)
@@ -27,7 +31,8 @@ class InventoryService:
             quantity_delta=quantity_delta,
             quantity_after=new_quantity,
             source=source,
-            reference_id=reference_id
+            reference_id=reference_id,
+            user_id=product.user_id  # Ensure ledger entry has the user_id
         )
         
         # Update product inventory
@@ -41,9 +46,13 @@ class InventoryService:
         
         return product
     
-    def get_inventory(self, search: Optional[str] = None, page: int = 1, limit: int = 50) -> Dict[str, Union[List[Product], int]]:
+    def get_inventory(self, search: Optional[str] = None, page: int = 1, limit: int = 50, user_id: UUID = None) -> Dict[str, Union[List[Product], int]]:
         """Get paginated inventory with search"""
         query = select(Product)
+        
+        # Apply user filter if provided
+        if user_id:
+            query = query.where(Product.user_id == user_id)
         
         # Apply search filter if provided
         if search:
@@ -54,6 +63,9 @@ class InventoryService:
         
         # Count total items
         count_query = select(func.count()).select_from(Product)
+        if user_id:
+            count_query = count_query.where(Product.user_id == user_id)
+            
         if search:
             count_query = count_query.where(
                 (Product.sku.ilike(f"%{search}%")) | 
@@ -73,9 +85,23 @@ class InventoryService:
             "pages": (total + limit - 1) // limit
         }
     
-    def get_ledger(self, product_id: UUID, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None) -> List[InventoryLedger]:
+    def get_ledger(self, product_id: UUID, start_date: Optional[datetime] = None, end_date: Optional[datetime] = None, user_id: UUID = None) -> List[InventoryLedger]:
         """Get inventory audit trail for a product"""
+        # First verify the product belongs to the user if user_id provided
+        if user_id:
+            product = self.db.exec(select(Product).where(
+                (Product.id == product_id) &
+                (Product.user_id == user_id)
+            )).first()
+            
+            if not product:
+                return []  # Return empty list if product not found or not owned by user
+        
         query = select(InventoryLedger).where(InventoryLedger.product_id == product_id)
+        
+        # Apply user filter if provided
+        if user_id:
+            query = query.where(InventoryLedger.user_id == user_id)
         
         # Apply date filters if provided
         if start_date:

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from sqlmodel import Session, select
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 from datetime import datetime
 from uuid import UUID
+import logging
 
 from app.db.database import get_db
 from app.models.data_models.Product import Product
@@ -11,15 +12,28 @@ from app.models.data_models.Sale import Sale
 from app.models.data_models.Supplier import Supplier
 from app.models.service_classes.EditService import EditService
 from app.api.mvp.edit_service import MVPEditService
-from app.routers.auth import get_current_user
-from app.api.mvp.auth import get_manager_user
 from app.models.data_models.User import User
+from app.api.auth.supabase import get_current_supabase_user
+from app.api.mvp.auth import get_current_user, get_manager_user
 
 
 EditServiceClass = MVPEditService
-
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/edit", tags=["edit"])
 
+# Add a new model that includes product count
+class SupplierWithProductCount(BaseModel):
+    id: UUID
+    name: str
+    contact_email: Optional[str] = None
+    phone: Optional[str] = None
+    lead_time_days: Optional[int] = None
+    notes: Optional[str] = None
+    created_at: datetime
+    product_count: int
+
+    class Config:
+        orm_mode = True
 
 class ProductCreate(BaseModel):
     sku: str
@@ -44,15 +58,15 @@ class ProductUpdate(BaseModel):
 class SupplierCreate(BaseModel):
     name: str
     contact_email: Optional[str] = None
-    contact_phone: Optional[str] = None
-    lead_time_days: Optional[int] = None
+    phone: Optional[str] = None
+    lead_time_days: int = 7
     notes: Optional[str] = None
 
 class SupplierUpdate(BaseModel):
     name: Optional[str] = None
     contact_email: Optional[str] = None
-    contact_phone: Optional[str] = None
-    lead_time_days: Optional[int] = None
+    phone: Optional[str] = None
+    lead_time_days: int = 7
     notes: Optional[str] = None
 
 class SaleCreate(BaseModel):
@@ -66,10 +80,71 @@ class SaleUpdate(BaseModel):
     sale_date: Optional[datetime] = None
     notes: Optional[str] = None
 
+# Combined authentication dependency
+async def get_authenticated_user(
+    request: Request,
+    token_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    Combined authentication that works with both JWT tokens and Supabase tokens.
+    First tries traditional JWT auth, and if that fails, tries Supabase auth.
+    Returns the authenticated user or raises an authentication error.
+    """
+    # If traditional JWT auth worked, use that user
+    if token_user:
+        logger.info(f"User authenticated via JWT: {token_user.email}")
+        return token_user
+    
+    try:
+        # Try Supabase auth if JWT fails
+        supabase_user = await get_current_supabase_user(request)
+        supabase_id = supabase_user.get("id")
+        
+        if not supabase_id:
+            logger.error("Supabase user has no ID")
+            raise HTTPException(status_code=401, detail="Invalid Supabase user information")
+        
+        # Find user by Supabase ID
+        user = db.exec(select(User).where(User.supabase_id == supabase_id)).first()
+        
+        if not user:
+            # This shouldn't happen if the sync endpoint is working properly
+            logger.error(f"No user found for Supabase ID: {supabase_id}")
+            raise HTTPException(status_code=401, detail="User not found in system")
+        
+        logger.info(f"User authenticated via Supabase: {user.email}")
+        return user
+    except Exception as e:
+        logger.error(f"Authentication error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+# Combined authentication for manager operations
+async def get_authenticated_manager(
+    request: Request,
+    token_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    Combined authentication with role check for manager/owner operations.
+    """
+    user = await get_authenticated_user(request, token_user, db)
+    
+    from app.models.enums.UserRole import UserRole
+    if user.role not in [UserRole.OWNER, UserRole.MANAGER]:
+        logger.error(f"User {user.email} has insufficient permissions: {user.role}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions"
+        )
+    
+    return user
+
 # Product endpoints
 @router.get("/products", response_model=List[Product])
 async def list_products(
-    current_user: User = Depends(get_current_user),
+    request: Request,
+    current_user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db)
 ):
     """Get all products for the current user"""
@@ -78,8 +153,9 @@ async def list_products(
 
 @router.post("/products", status_code=status.HTTP_201_CREATED, response_model=Product)
 async def create_product(
+    request: Request,
     product_data: ProductCreate,
-    current_user: User = Depends(get_manager_user),
+    current_user: User = Depends(get_authenticated_manager),
     db: Session = Depends(get_db)
 ):
     """Create a new product (manager role required)"""
@@ -96,9 +172,10 @@ async def create_product(
 
 @router.put("/products/{product_id}", response_model=Product)
 async def update_product(
+    request: Request,
     product_id: UUID,
     product_data: ProductUpdate,
-    current_user: User = Depends(get_manager_user),
+    current_user: User = Depends(get_authenticated_manager),
     db: Session = Depends(get_db)
 ):
     """Update a product (manager role required)"""
@@ -119,8 +196,9 @@ async def update_product(
 
 @router.delete("/products/{product_id}", response_model=Dict[str, str])
 async def delete_product(
+    request: Request,
     product_id: UUID,
-    current_user: User = Depends(get_manager_user),
+    current_user: User = Depends(get_authenticated_manager),
     db: Session = Depends(get_db)
 ):
     """Delete a product (manager role required)"""
@@ -136,19 +214,21 @@ async def delete_product(
     return result
 
 # Supplier endpoints
-@router.get("/suppliers", response_model=List[Supplier])
+@router.get("/suppliers", response_model=List[SupplierWithProductCount])
 async def list_suppliers(
-    current_user: User = Depends(get_current_user),
+    request: Request,
+    current_user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db)
 ):
-    """Get all suppliers for the current user"""
+    """Get all suppliers for the current user with product counts"""
     edit_service = EditServiceClass(db)
     return edit_service.get_suppliers(current_user.id)
 
 @router.post("/suppliers", status_code=status.HTTP_201_CREATED, response_model=Supplier)
 async def create_supplier(
+    request: Request,
     supplier_data: SupplierCreate,
-    current_user: User = Depends(get_manager_user),
+    current_user: User = Depends(get_authenticated_manager),
     db: Session = Depends(get_db)
 ):
     """Create a new supplier (manager role required)"""
@@ -165,9 +245,10 @@ async def create_supplier(
 
 @router.put("/suppliers/{supplier_id}", response_model=Supplier)
 async def update_supplier(
+    request: Request,
     supplier_id: UUID,
     supplier_data: SupplierUpdate,
-    current_user: User = Depends(get_manager_user),
+    current_user: User = Depends(get_authenticated_manager),
     db: Session = Depends(get_db)
 ):
     """Update a supplier (manager role required)"""
@@ -188,8 +269,9 @@ async def update_supplier(
 
 @router.delete("/suppliers/{supplier_id}", response_model=Dict[str, str])
 async def delete_supplier(
+    request: Request,
     supplier_id: UUID,
-    current_user: User = Depends(get_manager_user),
+    current_user: User = Depends(get_authenticated_manager),
     db: Session = Depends(get_db)
 ):
     """Delete a supplier (manager role required)"""
@@ -207,7 +289,8 @@ async def delete_supplier(
 # Sale endpoints
 @router.get("/sales", response_model=List[Sale])
 async def list_sales(
-    current_user: User = Depends(get_current_user),
+    request: Request,
+    current_user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db)
 ):
     """Get all sales for the current user"""
@@ -216,8 +299,9 @@ async def list_sales(
 
 @router.post("/sales", status_code=status.HTTP_201_CREATED, response_model=Sale)
 async def create_sale(
+    request: Request,
     sale_data: SaleCreate,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db)
 ):
     """Create a new sale record"""
@@ -234,9 +318,10 @@ async def create_sale(
 
 @router.put("/sales/{sale_id}", response_model=Sale)
 async def update_sale(
+    request: Request,
     sale_id: UUID,
     sale_data: SaleUpdate,
-    current_user: User = Depends(get_manager_user),
+    current_user: User = Depends(get_authenticated_manager),
     db: Session = Depends(get_db)
 ):
     """Update a sale record (manager role required)"""
@@ -257,8 +342,9 @@ async def update_sale(
 
 @router.delete("/sales/{sale_id}", response_model=Dict[str, str])
 async def delete_sale(
+    request: Request,
     sale_id: UUID,
-    current_user: User = Depends(get_manager_user),
+    current_user: User = Depends(get_authenticated_manager),
     db: Session = Depends(get_db)
 ):
     """Delete a sale record (manager role required)"""
@@ -273,32 +359,20 @@ async def delete_sale(
     
     return result
 
-# Utility endpoints
 @router.post("/seed", status_code=status.HTTP_201_CREATED)
 async def seed_data(
-    current_user: User = Depends(get_manager_user),
+    request: Request,
+    current_user: User = Depends(get_authenticated_manager),
     db: Session = Depends(get_db)
 ):
-    """Seed initial data for testing (manager role required)"""
-    try:
-        # Create default supplier
-        default_supplier = Supplier(
-            name="Default Supplier",
-            contact_email="contact@supplier.com",
-            lead_time_days=7,
-            user_id=current_user.id
-        )
-        db.add(default_supplier)
-        db.commit()
-        db.refresh(default_supplier)
-        
-        # Return created data
-        return {
-            "message": "Test data created successfully",
-            "supplier": default_supplier
-        }
-    except Exception as e:
+    """Seed database with sample data (manager role required)"""
+    edit_service = EditServiceClass(db)
+    result = edit_service.seed_data(current_user.id)
+    
+    if isinstance(result, dict) and "error" in result:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
-        ) 
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result["error"]
+        )
+    
+    return result 
