@@ -13,7 +13,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table"
-import { ArrowUpDown, ChevronDown, MoreHorizontal, Loader2 } from "lucide-react"
+import { ArrowUpDown, ChevronDown, MoreHorizontal, Loader2, Plus } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
@@ -30,32 +30,75 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { salesApi } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
+import { 
+  Card, 
+  CardContent, 
+  CardDescription, 
+  CardHeader, 
+  CardTitle 
+} from "@/components/ui/card"
+import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer, 
+  BarChart,
+  Bar,
+  Legend
+} from 'recharts'
+import { useDashboardStore } from "@/stores/dashboardStore"
+import { formatCurrency } from "@/lib/utils"
 
 export type Sale = {
   id: string
-  customer: string
-  email: string
-  amount: number
-  date: string
-  status: "completed" | "processing" | "failed"
-  products: number
+  product: string
+  product_id: string
+  quantity: number
+  sale_date: string
+  total: number
+  notes?: string
 }
 
 // Fallback data
 const fallbackData: Sale[] = [
   {
-    id: "ORD001",
-    customer: "Acme Corp",
-    email: "info@acmecorp.com",
-    amount: 2499.99,
-    date: "2023-04-23",
-    status: "completed",
-    products: 3,
+    id: "SALE001",
+    product: "Smart Inventory Manager",
+    product_id: "PROD001",
+    quantity: 2,
+    sale_date: "2023-05-15",
+    total: 2599.98,
+    notes: "Online purchase"
   },
   // ... other fallback data
 ]
 
-export function SalesTable() {
+interface SalesTableProps {
+  productId?: string
+}
+
+export function SalesTable({ productId }: SalesTableProps) {
   const { toast } = useToast()
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
@@ -63,76 +106,168 @@ export function SalesTable() {
   const [rowSelection, setRowSelection] = React.useState({})
   const [sales, setSales] = React.useState<Sale[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
+  
+  // State for dialogs
+  const [addDialogOpen, setAddDialogOpen] = React.useState(false)
+  const [editDialogOpen, setEditDialogOpen] = React.useState(false)
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
+  const [selectedSale, setSelectedSale] = React.useState<Sale | null>(null)
+
+  const { salesData, isSalesLoading, salesError, fetchSalesData } = useDashboardStore()
+  const [currentPage, setCurrentPage] = React.useState(1)
+  const [itemsPerPage, setItemsPerPage] = React.useState(10)
+  
+  const fetchSales = React.useCallback(async () => {
+    try {
+      setIsLoading(true)
+      const response = await salesApi.list()
+      
+      // Transform the API response to match our Sale type
+      const formattedSales = response.map((sale: any) => ({
+        id: sale.id,
+        product: sale.product_name || 'Unknown Product',
+        product_id: sale.product_id,
+        quantity: sale.quantity,
+        sale_date: new Date(sale.sale_date).toISOString().split('T')[0],
+        total: sale.amount || (sale.quantity * sale.cost) || 0,
+        notes: sale.notes,
+      }))
+      
+      setSales(formattedSales)
+    } catch (error) {
+      console.error("Error fetching sales:", error)
+      toast({
+        title: "Error",
+        description: "Failed to load sales. Showing fallback data.",
+        variant: "destructive",
+      })
+      setSales(fallbackData)
+    } finally {
+      setIsLoading(false)
+    }
+  }, [toast])
 
   React.useEffect(() => {
-    const fetchSales = async () => {
-      try {
-        setIsLoading(true)
-        const response = await salesApi.list()
-        
-        // Transform the API response to match our Sale type
-        const formattedSales = response.map((sale: any) => ({
-          id: sale.id || `ORD${Math.floor(Math.random() * 1000)}`,
-          customer: sale.customer_name || "Unknown Customer",
-          email: sale.customer_email || "No email provided",
-          amount: sale.total_amount || 0,
-          date: sale.created_at || new Date().toISOString().split('T')[0],
-          status: sale.status || "completed",
-          products: sale.line_items?.length || 1,
-        }))
-        
-        setSales(formattedSales)
-      } catch (error) {
-        console.error("Error fetching sales:", error)
-        toast({
-          title: "Error",
-          description: "Failed to load sales data. Showing fallback data.",
-          variant: "destructive",
-        })
-        setSales(fallbackData)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
     fetchSales()
-  }, [toast])
+  }, [fetchSales])
+
+  React.useEffect(() => {
+    fetchSalesData(productId, currentPage, itemsPerPage)
+  }, [fetchSalesData, productId, currentPage, itemsPerPage])
+  
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+  }
+  
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    return date.toLocaleDateString()
+  }
+
+  // Handle delete sale
+  const handleDeleteSale = async () => {
+    if (!selectedSale) return
+    
+    try {
+      // Log the ID being used
+      console.log(`Attempting to delete sale with ID: ${selectedSale.id}`);
+      
+      // Ensure we're using the UUID, not a display ID
+      const saleUuid = selectedSale.id;
+      
+      await salesApi.delete(saleUuid)
+      toast({
+        title: "Sale deleted",
+        description: "The sale has been deleted successfully.",
+      })
+      fetchSales()
+      // Also refresh the dashboard data if available
+      if (fetchSalesData) {
+        fetchSalesData(productId, currentPage, itemsPerPage);
+      }
+    } catch (error) {
+      console.error("Error deleting sale:", error)
+      
+      // Provide more specific error messages
+      let errorMessage = "An error occurred while deleting the sale.";
+      
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        
+        // Handle specific error cases
+        if (errorMessage.includes("not found")) {
+          errorMessage = "Sale not found or you don't have permission to delete it.";
+        }
+      }
+      
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setDeleteDialogOpen(false)
+      setSelectedSale(null)
+    }
+  }
 
   const columns: ColumnDef<Sale>[] = [
     {
       accessorKey: "id",
-      header: "Order ID",
+      header: "ID",
       cell: ({ row }) => <div className="font-medium">{row.getValue("id")}</div>,
     },
     {
-      accessorKey: "customer",
+      accessorKey: "product",
       header: ({ column }) => {
         return (
           <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            Customer
+            Product
             <ArrowUpDown className="ml-2 h-4 w-4" />
           </Button>
         )
       },
-      cell: ({ row }) => <div className="font-medium">{row.getValue("customer")}</div>,
+      cell: ({ row }) => <div className="font-medium">{row.getValue("product")}</div>,
     },
     {
-      accessorKey: "email",
-      header: "Email",
-      cell: ({ row }) => <div className="lowercase">{row.getValue("email")}</div>,
-    },
-    {
-      accessorKey: "amount",
+      accessorKey: "quantity",
       header: ({ column }) => {
         return (
           <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-            Amount
+            Quantity
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        )
+      },
+      cell: ({ row }) => <div className="text-center">{row.getValue("quantity")}</div>,
+    },
+    {
+      accessorKey: "sale_date",
+      header: ({ column }) => {
+        return (
+          <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Date
             <ArrowUpDown className="ml-2 h-4 w-4" />
           </Button>
         )
       },
       cell: ({ row }) => {
-        const amount = Number.parseFloat(row.getValue("amount"))
+        const date = new Date(row.getValue("sale_date"))
+        return <div>{date.toLocaleDateString()}</div>
+      },
+    },
+    {
+      accessorKey: "total",
+      header: ({ column }) => {
+        return (
+          <Button variant="ghost" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+            Total
+            <ArrowUpDown className="ml-2 h-4 w-4" />
+          </Button>
+        )
+      },
+      cell: ({ row }) => {
+        const amount = Number.parseFloat(row.getValue("total"))
         const formatted = new Intl.NumberFormat("en-US", {
           style: "currency",
           currency: "USD",
@@ -142,38 +277,9 @@ export function SalesTable() {
       },
     },
     {
-      accessorKey: "date",
-      header: "Date",
-      cell: ({ row }) => {
-        const date = new Date(row.getValue("date"))
-        return <div>{date.toLocaleDateString()}</div>
-      },
-    },
-    {
-      accessorKey: "status",
-      header: "Status",
-      cell: ({ row }) => {
-        const status = row.getValue("status") as string
-        return (
-          <Badge
-            variant={status === "completed" ? "default" : status === "processing" ? "outline" : "secondary"}
-            className={
-              status === "completed"
-                ? "bg-green-500 hover:bg-green-600"
-                : status === "processing"
-                  ? "border-amber-500 text-amber-500 hover:bg-amber-50"
-                  : "bg-red-500 hover:bg-red-600"
-            }
-          >
-            {status}
-          </Badge>
-        )
-      },
-    },
-    {
-      accessorKey: "products",
-      header: "Products",
-      cell: ({ row }) => <div className="text-center">{row.getValue("products")}</div>,
+      accessorKey: "notes",
+      header: "Notes",
+      cell: ({ row }) => <div className="truncate max-w-[200px]">{row.getValue("notes") || "-"}</div>,
     },
     {
       id: "actions",
@@ -191,11 +297,19 @@ export function SalesTable() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="bg-background">
               <DropdownMenuLabel>Actions</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => navigator.clipboard.writeText(sale.id)}>Copy order ID</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigator.clipboard.writeText(sale.id)}>
+                Copy sale ID
+              </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>View order details</DropdownMenuItem>
-              <DropdownMenuItem>View customer</DropdownMenuItem>
-              <DropdownMenuItem>Send invoice</DropdownMenuItem>
+              <DropdownMenuItem 
+                onClick={() => {
+                  setSelectedSale(sale)
+                  setDeleteDialogOpen(true)
+                }}
+                className="text-destructive focus:text-destructive"
+              >
+                Delete sale
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         )
@@ -226,107 +340,212 @@ export function SalesTable() {
     return (
       <div className="flex justify-center items-center py-8">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2">Loading sales data...</span>
+        <span className="ml-2">Loading sales...</span>
       </div>
     )
   }
 
+  if (isSalesLoading) {
+    return (
+      <div className="flex items-center justify-center p-8">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+  
+  if (salesError) {
+    return (
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>Sales Data</CardTitle>
+          <CardDescription>Error loading sales data</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="p-4 text-red-500">
+            {salesError}
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+  
+  if (!salesData || !salesData.items || salesData.items.length === 0) {
+    return (
+      <Card className="mt-4">
+        <CardHeader>
+          <CardTitle>Sales Data</CardTitle>
+          <CardDescription>No sales data available</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="p-4 text-gray-500">
+            No sales records found for the selected period.
+          </div>
+        </CardContent>
+      </Card>
+    )
+  }
+
   return (
-    <div className="w-full">
-      <div className="flex items-center py-4">
-        <Input
-          placeholder="Filter by customer..."
-          value={(table.getColumn("customer")?.getFilterValue() as string) ?? ""}
-          onChange={(event) => table.getColumn("customer")?.setFilterValue(event.target.value)}
-          className="max-w-sm"
-        />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" className="ml-auto">
-              Columns <ChevronDown className="ml-2 h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {table
-              .getAllColumns()
-              .filter((column) => column.getCanHide())
-              .map((column) => {
-                return (
-                  <DropdownMenuCheckboxItem
-                    key={column.id}
-                    className="capitalize"
-                    checked={column.getIsVisible()}
-                    onCheckedChange={(value) => column.toggleVisibility(!!value)}
-                  >
-                    {column.id}
-                  </DropdownMenuCheckboxItem>
-                )
-              })}
-          </DropdownMenuContent>
-        </DropdownMenu>
+    <div className="space-y-6">
+      {/* Sales Analytics Charts */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader>
+            <CardTitle>Daily Sales</CardTitle>
+            <CardDescription>Revenue by day for the selected period</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart
+                  data={salesData.daily_totals}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="date" />
+                  <YAxis />
+                  <Tooltip 
+                    formatter={(value) => formatCurrency(Number(value))}
+                  />
+                  <Legend />
+                  <Line 
+                    type="monotone" 
+                    dataKey="revenue" 
+                    stroke="#8884d8" 
+                    name="Revenue" 
+                    activeDot={{ r: 8 }} 
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader>
+            <CardTitle>Monthly Revenue</CardTitle>
+            <CardDescription>Revenue by month</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={salesData.monthly_sales}
+                  margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="month" />
+                  <YAxis />
+                  <Tooltip 
+                    formatter={(value) => formatCurrency(Number(value))}
+                  />
+                  <Bar 
+                    dataKey="revenue" 
+                    fill="#82ca9d" 
+                    name="Revenue" 
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </CardContent>
+        </Card>
       </div>
-      <div className="rounded-md border">
-        <Table>
-          <TableHeader>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => {
-                  return (
-                    <TableHead key={header.id}>
-                      {header.isPlaceholder
-                        ? null
-                        : flexRender(header.column.columnDef.header, header.getContext())}
-                    </TableHead>
-                  )
-                })}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody>
-            {table.getRowModel().rows?.length ? (
-              table.getRowModel().rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() && "selected"}>
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </TableCell>
-                  ))}
+      
+      {/* Sales Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Sales Records</CardTitle>
+          <CardDescription>
+            {productId 
+              ? "Sales records for selected product"
+              : "Recent sales records"
+            }
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="rounded-md border">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead>SKU</TableHead>
+                  <TableHead className="text-right">Quantity</TableHead>
+                  <TableHead className="text-right">Revenue</TableHead>
                 </TableRow>
-              ))
-            ) : (
-              <TableRow>
-                <TableCell colSpan={columns.length} className="h-24 text-center">
-                  No sales found.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
-      <div className="flex items-center justify-end space-x-2 py-4">
-        <div className="flex-1 text-sm text-muted-foreground">
-          {table.getFilteredSelectedRowModel().rows.length} of{" "}
-          {table.getFilteredRowModel().rows.length} row(s) selected.
-        </div>
-        <div className="space-x-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
+              </TableHeader>
+              <TableBody>
+                {salesData.items.map((sale) => (
+                  <TableRow key={sale.id}>
+                    <TableCell>{formatDate(sale.sale_date)}</TableCell>
+                    <TableCell className="font-medium">{sale.name}</TableCell>
+                    <TableCell>{sale.sku}</TableCell>
+                    <TableCell className="text-right">{sale.quantity}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(sale.revenue)}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+          
+          {/* Pagination */}
+          {salesData.pages > 1 && (
+            <div className="flex items-center justify-center space-x-2 py-4">
+              <Pagination>
+                <PaginationContent>
+                  {currentPage > 1 && (
+                    <PaginationItem>
+                      <PaginationPrevious 
+                        onClick={() => handlePageChange(currentPage - 1)}
+                      />
+                    </PaginationItem>
+                  )}
+                  
+                  {[...Array(Math.min(5, salesData.pages))].map((_, i) => {
+                    const page = i + 1
+                    return (
+                      <PaginationItem key={page}>
+                        <PaginationLink
+                          onClick={() => handlePageChange(page)}
+                          isActive={currentPage === page}
+                        >
+                          {page}
+                        </PaginationLink>
+                      </PaginationItem>
+                    )
+                  })}
+                  
+                  {currentPage < salesData.pages && (
+                    <PaginationItem>
+                      <PaginationNext 
+                        onClick={() => handlePageChange(currentPage + 1)}
+                      />
+                    </PaginationItem>
+                  )}
+                </PaginationContent>
+              </Pagination>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the sale record. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteSale} className="bg-destructive">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

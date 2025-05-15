@@ -132,6 +132,9 @@ class MVPEditService:
             if existing:
                 return {"error": "Supplier with this name already exists"}
             
+            # Handle lead_time_days specifically - use default if None
+            if "lead_time_days" in supplier_data and supplier_data["lead_time_days"] is None:
+                supplier_data["lead_time_days"] = 7  # Default value from the model
             
             supplier = Supplier(**supplier_data)
             self.db.add(supplier)
@@ -154,9 +157,11 @@ class MVPEditService:
             if not supplier:
                 return {"error": "Supplier not found or you don't have permission to access it"}
             
+            # Handle lead_time_days specifically - use default if None
+            if "lead_time_days" in supplier_data and supplier_data["lead_time_days"] is None:
+                supplier_data["lead_time_days"] = 7  # Default value from the model
             
             for key, value in supplier_data.items():
-                
                 if key != "user_id":
                     setattr(supplier, key, value)
             
@@ -196,13 +201,44 @@ class MVPEditService:
             self.db.rollback()
             return {"error": str(e)}
     
-    def get_suppliers(self, user_id: UUID) -> List[Supplier]:
-        """Get all suppliers for a user"""
+    def get_suppliers(self, user_id: UUID) -> List[Dict[str, Any]]:
+        """Get all suppliers for a user with product count"""
         try:
+            # First get all suppliers
             suppliers = self.db.exec(select(Supplier).where(
                 Supplier.user_id == user_id
             )).all()
-            return suppliers
+            
+            # Convert to list of dictionaries for easier manipulation
+            result = []
+            for supplier in suppliers:
+                # For each supplier, count the number of associated products
+                products = self.db.exec(
+                    select(Product)
+                    .where(
+                        (Product.supplier_id == supplier.id) &
+                        (Product.user_id == user_id)
+                    )
+                ).all()
+                
+                product_count = len(products)
+                
+                # Convert supplier to dict and add product count
+                supplier_dict = {
+                    "id": supplier.id,
+                    "name": supplier.name,
+                    "contact_email": supplier.contact_email,
+                    "phone": supplier.phone,
+                    "lead_time_days": supplier.lead_time_days,
+                    "notes": supplier.notes,
+                    "created_at": supplier.created_at,
+                    "user_id": supplier.user_id,
+                    "product_count": product_count
+                }
+                
+                result.append(supplier_dict)
+                
+            return result
         except Exception as e:
             return {"error": str(e)}
     
