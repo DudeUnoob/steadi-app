@@ -15,10 +15,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-SECRET_KEY = os.getenv("JWT_SECRET", )
-ALGORITHM = os.getenv("ALGORITHM", )
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", ))
+SECRET_KEY = os.getenv("JWT_SECRET")
+ALGORITHM = os.getenv("ALGORITHM")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "30"))
 
+logger.info(f"JWT Auth Config Loaded: SECRET_KEY is set: {bool(SECRET_KEY)}, ALGORITHM: {ALGORITHM}, EXPIRE_MINUTES: {ACCESS_TOKEN_EXPIRE_MINUTES}")
+if not SECRET_KEY:
+    logger.error("CRITICAL: JWT_SECRET environment variable is NOT SET.")
+if not ALGORITHM:
+    logger.error("CRITICAL: ALGORITHM environment variable is NOT SET.")
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -56,25 +61,42 @@ def create_refresh_token(data: dict):
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """Dependency to get current user from token"""
+    logger.info(f"get_current_user: Attempting to validate token: {token[:20]}...")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
+        detail="Could not validate credentials - token processing issue",
         headers={"WWW-Authenticate": "Bearer"},
     )
     
+    if not SECRET_KEY or not ALGORITHM:
+        logger.error("get_current_user: JWT_SECRET or ALGORITHM not configured!")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="JWT configuration error on server."
+        )
+
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
-        if user_id is None:
-            raise credentials_exception
-            
+        logger.info(f"get_current_user: Token decoded. Payload sub (user_id): {user_id}")
         
-        user = db.exec(select(User).where(User.id == user_id)).first()
-        if user is None:
+        if user_id is None:
+            logger.warning("get_current_user: User ID (sub) not found in token payload.")
             raise credentials_exception
             
+        user = db.exec(select(User).where(User.id == user_id)).first()
+        
+        if user is None:
+            logger.warning(f"get_current_user: User with ID {user_id} not found in database.")
+            raise credentials_exception
+        
+        logger.info(f"get_current_user: Successfully retrieved user {user.email} (ID: {user.id})")
         return user
-    except JWTError:
+    except JWTError as e:
+        logger.error(f"get_current_user: JWTError during token decoding: {str(e)}")
+        raise credentials_exception
+    except Exception as e:
+        logger.error(f"get_current_user: Unexpected error: {str(e)}")
         raise credentials_exception
 
 def get_current_active_user(current_user: User = Depends(get_current_user)):

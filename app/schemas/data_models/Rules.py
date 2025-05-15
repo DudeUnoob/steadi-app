@@ -20,15 +20,7 @@ class RulesBase(BaseModel):
     manager_edit_sales: bool = True
     manager_set_staff_rules: bool = True
     
-    # Organization ID (6-digit number)
-    organization_id: Optional[int] = None
-    
-    @validator('organization_id')
-    def validate_organization_id(cls, v):
-        if v is not None:
-            if v < 100000 or v > 999999:
-                raise ValueError("Organization ID must be a 6-digit number")
-        return v
+    # Organization ID removed since it's now only in the User model
     
 class RulesCreate(RulesBase):
     pass

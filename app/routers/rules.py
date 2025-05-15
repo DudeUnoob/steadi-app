@@ -101,105 +101,115 @@ async def get_my_rules(
 @router.post("/me", response_model=RulesReadWithOrg)
 async def create_my_rules(
     request: Request,
-    rules_data: RulesCreate, # Will not contain organization_id
-    db: Session = Depends(get_db),
-    # Directly attempt to get user via Supabase token for this endpoint
-    # current_user: Optional[User] = Depends(get_current_user) # Original line
-    supabase_user_data: Optional[dict] = Depends(get_optional_supabase_user) # Changed dependency
+    rules_data: RulesCreate,
+    db: Session = Depends(get_db)
+    # current_user: Optional[User] = Depends(get_current_user) # Temporarily remove direct dependency injection
 ):
     """Create or update rules for the current authenticated user. Manages User.organization_id."""
-    # user = current_user # Original line
+    
     user: Optional[User] = None
-    is_new_user_session = False 
+    token: Optional[str] = None
+    is_new_user_session = False
 
-    logger.info(f"POST /rules/me: Attempting to identify user from Supabase data for email: {supabase_user_data.get('email') if supabase_user_data else 'No Supabase data from token'}")
+    try:
+        # Manually try to get the user
+        token = get_token_from_header(request) # From app.api.auth.supabase, but it's a generic token extractor
+        if not token:
+            logger.warning("POST /rules/me: No token found in header.")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated - no token")
+        
+        logger.info(f"POST /rules/me: Attempting to get user with token: {token[:20]}...")
+        # Manually call get_current_user (it needs db explicitly passed if not using Depends for db in its own signature)
+        # We need to ensure get_current_user is awaitable if it truly is async, or call it directly if not.
+        # The definition was: async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+        # So when calling manually, we pass token and db.
+        user = await get_current_user(token=token, db=db) # Pass token and db session directly
+        logger.info(f"POST /rules/me: Successfully called get_current_user. User: {user.email if user else 'None'}")
 
-    if supabase_user_data:
-        supabase_id = supabase_user_data.get("id")
-        email_from_token = supabase_user_data.get("email") # Use a different name to avoid confusion with user.email
-        
-        potential_user: Optional[User] = None
-        if supabase_id:
-            potential_user = db.exec(select(User).where(User.supabase_id == supabase_id)).first()
-            if potential_user: # Check if a user was actually found
-                logger.info(f"POST /rules/me: Found potential user by supabase_id: {potential_user.id}. Refreshing.")
-                db.refresh(potential_user)
-                user = potential_user # Assign to main user variable
-        
-        if not user and email_from_token: # If not found by supabase_id, try by email
-            potential_user_by_email = db.exec(select(User).where(User.email == email_from_token)).first()
-            if potential_user_by_email: # This check is correctly present
-                logger.info(f"POST /rules/me: Found potential user by email: {potential_user_by_email.id}. Refreshing.")
-                db.refresh(potential_user_by_email)
-                user = potential_user_by_email # Assign to main user variable
-                
-                # Link if necessary (user was found by email, but supabase_id might be new or different)
-                if supabase_id and (not user.supabase_id or user.supabase_id != supabase_id):
-                    logger.info(f"POST /rules/me: Linking existing user {user.email} (found by email) to Supabase ID {supabase_id}.")
-                    user.supabase_id = supabase_id
-                    db.add(user) # Stage the update for supabase_id
-        
-        # If user is still not found, and we have necessary data from token, create them.
-        if not user and supabase_id and email_from_token:
-            from app.routers.supabase_auth import SUPABASE_USER_PASSWORD_PLACEHOLDER
-            role_str = supabase_user_data.get("user_metadata", {}).get("role")
-            if not role_str and supabase_user_data.get("app_metadata", {}):
-                role_str = supabase_user_data.get("app_metadata").get("role")
-            if not role_str:
-                role_str = "staff"
-                logger.warning(f"POST /rules/me: Role not found in Supabase metadata for {email_from_token}, defaulting to 'staff'.")
-            role = convert_role_to_enum(role_str)
-            logger.info(f"POST /rules/me: Creating new user {email_from_token} from Supabase data with role {role} (raw: '{role_str}').")
-            user = User(email=email_from_token, supabase_id=supabase_id, password_hash=SUPABASE_USER_PASSWORD_PLACEHOLDER, role=role)
-            db.add(user)
-            is_new_user_session = True 
-        
-        if user: # This means user was found (and refreshed) or created
-            logger.info(f"POST /rules/me: User {user.email} (ID: {user.id}) successfully identified/processed.")
+    except HTTPException as e: # Catch HTTPException from get_current_user or our no_token check
+        logger.error(f"POST /rules/me: HTTPException during manual user retrieval: {e.detail}")
+        # If it's the specific "Could not validate credentials - token processing issue" from get_current_user, it means get_current_user itself failed.
+        # Re-raise it or a more generic one if needed
+        if e.status_code == status.HTTP_401_UNAUTHORIZED and "token processing issue" in e.detail:
+             # This indicates get_current_user internally failed as expected by its own logic
+             pass # We will proceed to the supabase block as before
         else:
-            # This path means supabase_user_data was present but didn't lead to a user (e.g. not in DB and couldn't create)
-            logger.warning("POST /rules/me: Supabase data processed, but no user identified or created (e.g., email/ID missing in token or other logic issue).")
-    else:
-        logger.warning("POST /rules/me: get_optional_supabase_user returned no data. Cannot identify user.")
+            raise e # Re-raise other HTTPErrors
+    except Exception as e:
+        logger.error(f"POST /rules/me: Unexpected error during manual user retrieval: {str(e)}")
+        # Fall through to Supabase block or raise generic 500 if this is unexpected
+        # For now, let's assume if this fails, user remains None and Supabase block is the fallback
+        pass # User will be None
+
+    # Authentication and user retrieval/creation block (Supabase fallback)
+    if user is None:
+        logger.info("POST /rules/me: User is None after initial token check, proceeding to Supabase auth flow.")
+        try:
+            supabase_user_data = await get_optional_supabase_user(request) 
+            if supabase_user_data:
+                supabase_id = supabase_user_data.get("id")
+                email = supabase_user_data.get("email")
+                logger.info(f"POST /rules/me: Supabase data found - ID: {supabase_id}, Email: {email}")
+                # Try to find existing user by supabase_id or email
+                if supabase_id:
+                    user = db.exec(select(User).where(User.supabase_id == supabase_id)).first()
+                if not user and email:
+                    user = db.exec(select(User).where(User.email == email)).first()
+                    if user and supabase_id and (not user.supabase_id or user.supabase_id != supabase_id):
+                        logger.info(f"POST /rules/me: Linking existing user {email} to supabase_id {supabase_id}")
+                        user.supabase_id = supabase_id 
+                        db.add(user)
+                
+                if not user and supabase_id and email: # Create user if not found from Supabase data
+                    from app.routers.supabase_auth import SUPABASE_USER_PASSWORD_PLACEHOLDER
+                    role = convert_role_to_enum(supabase_user_data.get("user_metadata", {}).get("role", "staff"))
+                    logger.info(f"POST /rules/me: Creating new user from Supabase data - Email: {email}, Role: {role}")
+                    user = User(email=email, supabase_id=supabase_id, password_hash=SUPABASE_USER_PASSWORD_PLACEHOLDER, role=role)
+                    db.add(user)
+                    is_new_user_session = True 
+            else:
+                logger.warning("POST /rules/me: get_optional_supabase_user returned no data.")
+        except Exception as e:
+            logger.error(f"POST /rules/me: Error during Supabase auth/user processing: {str(e)}")
 
     if user is None:
-        logger.error("POST /rules/me: Final user object is None after attempting to process Supabase data. Raising 401.")
+        logger.error("POST /rules/me: Final user object is None after all auth attempts. Raising 401.")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required - user not identified")
 
-    if is_new_user_session or user.id is None: 
-        logger.info(f"Committing user {user.email} (new or no ID) before rules processing in POST /rules/me.")
+    if is_new_user_session or (user.id is None and user in db.new): # Check if user is new and needs commit for ID
+        logger.info(f"POST /rules/me: Committing new user {user.email} to get ID before rules processing.")
+        db.commit()
+        db.refresh(user)
+    elif user in db.dirty:
+        logger.info(f"POST /rules/me: Committing changes for existing user {user.email} (e.g. supabase_id link) before rules processing.")
         db.commit()
         db.refresh(user)
 
     try:
-        # Organization ID for User: Generate if user doesn't have one (e.g., first setup)
-        # This POST request implies the user is actively setting up or confirming their org.
         if user.organization_id is None:
             user.organization_id = generate_organization_id()
             logger.info(f"Generated new organization ID {user.organization_id} for user {user.id} in POST /rules/me.")
-            db.add(user) # Add user to session, will be committed with rules
+            db.add(user) 
         
         existing_rules = get_rules_by_user_id(db, user.id)
+        rules_to_return = None
         
         if existing_rules:
             logger.info(f"Updating existing rules for user {user.id}.")
-            # RulesUpdate schema no longer has organization_id
             rules_update_payload = RulesUpdate(**rules_data.dict(exclude_unset=True))
             rules_to_return = update_rules(db, user.id, rules_update_payload)
             if not rules_to_return:
                  raise HTTPException(status_code=500, detail="Failed to update rules.")
         else:
             logger.info(f"Creating new rules for user {user.id}.")
-            # RulesCreate schema no longer has organization_id
             rules_to_return = create_rules(db, user.id, rules_data)
         
-        db.commit() # Commits user (org_id) and rules changes together
+        db.commit()
         logger.info(f"Committed rules and user updates for user {user.id}. User OrgID: {user.organization_id}")
         
         db.refresh(user)
         db.refresh(rules_to_return)
 
-        # Populate the response model
         response_data = rules_to_return.dict()
         response_data['organization_id'] = user.organization_id
         

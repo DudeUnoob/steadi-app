@@ -35,14 +35,14 @@ def update_rules(db: Session, user_id: UUID, rules_data: RulesUpdate) -> Optiona
     if not rules:
         return None
     
-    # organization_id is no longer part of RulesUpdate or Rules model.
-    rules_dict = rules_data.dict(exclude_unset=False) 
-
+    # Only update fields that are not None in the update payload
+    rules_dict = rules_data.dict(exclude_unset=True, exclude_none=True)
+    
+    # Only update fields that are provided in the update
     for key, value in rules_dict.items():
         setattr(rules, key, value)
     
-    db.add(rules) # Add rules to session for commit by router
-    # db.commit() and db.refresh() are handled by the router
+    db.add(rules)
     
     return rules
 

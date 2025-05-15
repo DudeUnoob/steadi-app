@@ -106,14 +106,58 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
         throw new Error(`Failed to get authentication session: ${sessionError.message}`);
     }
     
-    const token = session?.access_token;
+    const supabaseToken = session?.access_token;
     
-    if (!token) {
+    if (!supabaseToken) {
         console.error('No access token available in session:', session);
         throw new Error('No valid authentication token available');
     }
     
-    console.log(`Retrieved token (length: ${token.length})`);
+    console.log(`Retrieved Supabase token (length: ${supabaseToken.length})`);
+    
+    // Exchange Supabase token for backend token
+    let token = localStorage.getItem('backend_token');
+    const tokenExpiry = localStorage.getItem('backend_token_expiry');
+    
+    // Check if token is expired
+    const isTokenExpired = !tokenExpiry || Date.now() > parseInt(tokenExpiry);
+    
+    if (!token || isTokenExpired) {
+        console.log('Backend token missing or expired, getting new one...');
+        try {
+            const exchangeResponse = await fetch(`${API_URL}/supabase-auth/token`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${supabaseToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            if (!exchangeResponse.ok) {
+                const errorText = await exchangeResponse.text();
+                console.error('Token exchange failed:', errorText);
+                throw new Error(`Authentication failed: ${errorText}`);
+            }
+            
+            const tokenData = await exchangeResponse.json();
+            token = tokenData.access_token;
+            
+            // Calculate expiry (subtract 5 minutes for safety margin)
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            const expiryTime = payload.exp * 1000 - (5 * 60 * 1000);
+            
+            // Store the new token and expiry
+            localStorage.setItem('backend_token', token);
+            localStorage.setItem('backend_token_expiry', expiryTime.toString());
+            
+            console.log('Received and stored new backend token');
+        } catch (error) {
+            console.error('Error exchanging token:', error);
+            throw new Error(`Failed to exchange authentication token: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    } else {
+        console.log('Using stored backend token');
+    }
     
     // Add token to headers
     const headers = {
@@ -123,7 +167,7 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
     
     console.log(`Making ${options.method || 'GET'} request to ${url}...`);
     
-    // Make the initial request
+    // Make the request
     let response: Response;
     try {
         response = await fetch(url, {
@@ -135,35 +179,16 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
         throw new Error(`Network error: ${error instanceof Error ? error.message : String(error)}`);
     }
     
-    console.log(`Initial response status: ${response.status}`);
+    console.log(`Response status: ${response.status}`);
     
-    // If unauthorized, try to refresh the token and retry once
+    // If unauthorized, clear token and retry once
     if (response.status === 401) {
-        console.log('Received 401, attempting token refresh...');
+        console.log('Received 401, clearing stored token and retrying...');
+        localStorage.removeItem('backend_token');
+        localStorage.removeItem('backend_token_expiry');
         
-        const { data: refreshResult, error: refreshError } = await supabase.auth.refreshSession();
-        
-        if (refreshError || !refreshResult.session) {
-            console.error('Token refresh failed:', refreshError);
-            throw new Error(`Authentication failed: ${refreshError?.message || 'Unable to refresh token'}`);
-        }
-        
-        console.log('Token refreshed successfully, retrying request...');
-        
-        // Retry with new token
-        try {
-            response = await fetch(url, {
-                ...options,
-                headers: {
-                    ...options.headers,
-                    'Authorization': `Bearer ${refreshResult.session.access_token}`
-                }
-            });
-            console.log(`Retry response status: ${response.status}`);
-        } catch (error) {
-            console.error('Network error during retry fetch:', error);
-            throw new Error(`Network error on retry: ${error instanceof Error ? error.message : String(error)}`);
-        }
+        // Retry with token exchange
+        return fetchWithAuth(url, options);
     }
     
     // Check final response
@@ -467,8 +492,49 @@ export default function RulesPage() {
         setIsSubmitting(true);
 
         try {
+            // Ensure the user is synced in the backend database first
+            // This helps with new Supabase users who haven't been synced yet
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+            
+            if (sessionError) {
+                throw new Error(`Failed to get authentication session: ${sessionError.message}`);
+            }
+            
+            const supabaseToken = session?.access_token;
+            if (!supabaseToken) {
+                throw new Error('No valid Supabase authentication token available');
+            }
+            
+            // Sync the user with our backend - this ensures the user exists
+            try {
+                console.log('Syncing user with backend...');
+                const syncResponse = await fetch(`${API_URL}/supabase-auth/sync`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${supabaseToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (syncResponse.ok) {
+                    const tokenData = await syncResponse.json();
+                    // Store the new token and calculate expiry
+                    const token = tokenData.access_token;
+                    const payload = JSON.parse(atob(token.split('.')[1]));
+                    const expiryTime = payload.exp * 1000 - (5 * 60 * 1000);
+                    localStorage.setItem('backend_token', token);
+                    localStorage.setItem('backend_token_expiry', expiryTime.toString());
+                    console.log('User synced and received backend token');
+                } else {
+                    console.warn('Failed to sync user, will try to continue with rules submission');
+                }
+            } catch (error) {
+                console.warn('Error syncing user, continuing with rules submission:', error);
+                // We'll continue and let fetchWithAuth handle token issues
+            }
+            
             // Prepare data from permission states
-            const rulesOnlyData: Omit<RulesData, 'organization_id'> = {
+            const rulesOnlyData = {
                 staff_view_products: staffPermissions.find(p => p.id === "staff-view-products")?.checked || false,
                 staff_edit_products: staffPermissions.find(p => p.id === "staff-edit-products")?.checked || false,
                 staff_view_suppliers: staffPermissions.find(p => p.id === "staff-view-suppliers")?.checked || false,
@@ -506,9 +572,7 @@ export default function RulesPage() {
 
             toast({
                 title: "Permissions saved",
-                description: responseData.organization_id 
-                    ? "Role permissions have been successfully configured."
-                    : `Role permissions saved with organization ID: ${responseData.organization_id}`,
+                description: "Role permissions have been successfully configured.",
             });
 
             // Small delay to show the generated organization ID before navigating

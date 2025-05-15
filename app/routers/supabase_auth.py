@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from app.api.auth.supabase import get_current_supabase_user, get_optional_supabase_user, cleanup_user_session
-from app.schemas.data_models.User import UserRead, SupabaseUserCreate
+from app.schemas.data_models.User import UserRead, SupabaseUserCreate, Token
 from app.models.data_models.User import User
 from app.models.enums.UserRole import UserRole
 from sqlmodel import Session, select
 from app.db.database import get_db
 from typing import Dict, Any, Optional
+from app.api.mvp.auth import create_access_token, create_refresh_token
 import uuid
 import logging
 
@@ -80,7 +81,7 @@ async def get_supabase_user_info(
     
     return user
 
-@router.post("/sync", response_model=UserRead)
+@router.post("/sync", response_model=Token)
 async def sync_supabase_user(
     request: Request,
     db: Session = Depends(get_db),
@@ -92,6 +93,8 @@ async def sync_supabase_user(
     The data can come from either:
     1. The Supabase JWT token in the Authorization header (preferred)
     2. The request body with user data (fallback)
+    
+    Returns a local JWT token that can be used with all endpoints.
     """
     # First try to get data from token
     supabase_user = await get_optional_supabase_user(request)
@@ -190,7 +193,15 @@ async def sync_supabase_user(
             db.refresh(user)
             logger.info(f"Saved user {user.id} to database with role {user.role}")
         
-        return user
+        # Generate JWT tokens using our local JWT system
+        access_token = create_access_token(data={"sub": str(user.id), "role": user.role})
+        refresh_token = create_refresh_token(data={"sub": str(user.id)})
+        
+        return Token(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_type="bearer"
+        )
     except Exception as e:
         logger.error(f"Error syncing user: {str(e)}", exc_info=True)
         raise HTTPException(
@@ -212,3 +223,70 @@ async def logout(
         logger.info("Logout requested without valid session")
     
     return {"status": "success", "message": "Logged out successfully"}
+
+@router.post("/token", response_model=Token)
+async def get_local_token_from_supabase(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Convert a Supabase JWT token to a local JWT token.
+    
+    This allows Supabase-authenticated users to get a local token
+    that works with all endpoints in the application.
+    """
+    supabase_user = await get_current_supabase_user(request)
+    
+    if not supabase_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Supabase authentication"
+        )
+    
+    supabase_id = supabase_user.get("id")
+    email = supabase_user.get("email")
+    
+    if not supabase_id or not email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Supabase token is missing required user information"
+        )
+    
+    # Find or create user in the database
+    user = db.exec(select(User).where(User.supabase_id == supabase_id)).first()
+    
+    if not user:
+        # Try to find by email
+        user = db.exec(select(User).where(User.email == email)).first()
+        
+        if user:
+            # Update existing user with Supabase ID
+            user.supabase_id = supabase_id
+        else:
+            # Extract role from user metadata if available
+            user_metadata = supabase_user.get("user_metadata", {})
+            role_str = user_metadata.get("role")
+            role = convert_role_to_enum(role_str) if role_str else UserRole.STAFF
+            
+            # Create new user
+            user = User(
+                email=email,
+                supabase_id=supabase_id,
+                password_hash=SUPABASE_USER_PASSWORD_PLACEHOLDER,
+                id=uuid.uuid4(),
+                role=role
+            )
+        
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    
+    # Generate local JWT tokens
+    access_token = create_access_token(data={"sub": str(user.id), "role": user.role})
+    refresh_token = create_refresh_token(data={"sub": str(user.id)})
+    
+    return Token(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer"
+    )
