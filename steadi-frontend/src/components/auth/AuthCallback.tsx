@@ -32,6 +32,9 @@ export function AuthCallback() {
           if (error) {
             throw error;
           }
+          
+          // Mark that user needs to complete rules setup
+          localStorage.setItem('rules_setup_required', 'true');
         }
         
         setLoading(false);
@@ -81,5 +84,5 @@ export function AuthCallback() {
   }
 
  
-  return <Navigate to="/dashboard" replace />;
+  return <Navigate to="/auth/rules" replace />;
 } 

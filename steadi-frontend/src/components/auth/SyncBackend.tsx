@@ -31,10 +31,16 @@ export function SyncBackend() {
         throw new Error('No valid token available');
       }
       
+      // Get stored role from localStorage if available
+      const storedRole = localStorage.getItem('user_role');
+      
       const userData = {
         email: user.email,
-        supabase_id: user.id
+        supabase_id: user.id,
+        ...(storedRole ? { role: storedRole } : {})
       };
+
+      console.log('Syncing user data with backend:', { ...userData, token: '***' });
 
       const response = await fetch(`${API_URL}/supabase-auth/sync`, {
         method: 'POST',
@@ -45,9 +51,29 @@ export function SyncBackend() {
         body: JSON.stringify(userData)
       });
 
+      // Clone the response so we can read it twice
+      const responseClone = response.clone();
+      
+      try {
+        const responseText = await responseClone.text();
+        console.log('Raw backend response:', responseText);
+      } catch (err) {
+        // Just log the error and continue
+        console.error('Error reading raw response:', err);
+      }
+
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || 'Failed to sync with backend');
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(errorData.detail || 'Failed to sync with backend');
+      }
+
+      const syncedUserData = await response.json().catch(() => ({}));
+      console.log('Synced with backend successfully:', syncedUserData);
+      
+      // Update local role if it changed in the backend
+      if (syncedUserData.role && (!storedRole || storedRole !== syncedUserData.role)) {
+        localStorage.setItem('user_role', syncedUserData.role);
+        console.log('Updated local role from backend:', syncedUserData.role);
       }
 
       setRetryCount(0);

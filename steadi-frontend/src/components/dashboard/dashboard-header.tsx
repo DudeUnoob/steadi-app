@@ -1,9 +1,11 @@
-import {Link} from "react-router-dom"
+import {Link, useNavigate} from "react-router-dom"
 import { ModeToggle } from "@/components/dashboard/mode-toggle"
 import { Button } from "@/components/ui/button"
-import { Bell, HelpCircle, LogOut, Search } from "lucide-react"
+import { Bell, HelpCircle, LogOut, Search, Loader2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/lib/AuthContext"
+import { useState } from "react"
+import { useToast } from "@/components/ui/use-toast"
 import { 
   Tooltip,
   TooltipContent,
@@ -13,9 +15,38 @@ import {
 
 export function DashboardHeader() {
   const { signOut } = useAuth();
+  const navigate = useNavigate();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const { toast } = useToast();
 
   const handleLogout = async () => {
-    await signOut();
+    try {
+      setIsLoggingOut(true);
+      await signOut();
+      
+      toast({
+        title: "Logged out successfully",
+        description: "You have been securely logged out of your account.",
+      });
+      
+      // Navigation will be handled by the ProtectedRoute component
+      // which will redirect to login when auth status changes to UNAUTHENTICATED
+      // but we can also explicitly navigate to login page for additional safety
+      navigate('/auth');
+    } catch (error) {
+      console.error('Error during logout:', error);
+      
+      toast({
+        title: "Logout issue",
+        description: "There was a problem during logout. Please try again.",
+        variant: "destructive",
+      });
+      
+      // Still try to navigate to auth page even if there's an error
+      navigate('/auth');
+    } finally {
+      setIsLoggingOut(false);
+    }
   };
 
   return (
@@ -75,12 +106,16 @@ export function DashboardHeader() {
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon" onClick={handleLogout}>
-                  <LogOut className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
+                <Button variant="ghost" size="icon" onClick={handleLogout} disabled={isLoggingOut}>
+                  {isLoggingOut ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <LogOut className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
+                  )}
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                <p>Logout</p>
+                <p>{isLoggingOut ? "Logging out..." : "Logout"}</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

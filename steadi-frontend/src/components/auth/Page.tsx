@@ -11,7 +11,7 @@ export function NewAuthPage() {
     const [activeTab, setActiveTab] = useState<string>("signup")
 
     return (
-        <div className="flex min-h-screen w-full flex-col items-center justify-center bg-background p-4">
+        <div className="flex min-h-screen w-full flex-col items-center justify-center bg-background p-4 font-thin">
             <div className="absolute inset-0 overflow-hidden">
                 <div className="absolute left-1/4 top-1/4 h-[500px] w-[500px] rounded-full bg-steadi-red/10 blur-[100px]" />
                 <div className="absolute bottom-1/4 right-1/4 h-[600px] w-[600px] rounded-full bg-steadi-purple/10 blur-[100px]" />

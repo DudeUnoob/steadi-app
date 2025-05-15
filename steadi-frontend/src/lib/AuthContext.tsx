@@ -1,13 +1,13 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { Session, User, AuthError } from '@supabase/supabase-js';
+import type { Session, User, AuthError, Provider } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
 // Base URL for API calls
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 // Define AuthStatus type for better state management
-type AuthStatus = 'LOADING' | 'AUTHENTICATED' | 'UNAUTHENTICATED' | 'EMAIL_VERIFICATION_NEEDED';
+type AuthStatus = 'LOADING' | 'AUTHENTICATED' | 'UNAUTHENTICATED' | 'EMAIL_VERIFICATION_NEEDED' | 'RULES_SETUP_REQUIRED';
 
 // Generic type for auth responses
 type AuthResponseType = {
@@ -15,16 +15,26 @@ type AuthResponseType = {
   error: AuthError | null;
 };
 
+// User role type
+export const UserRole = {
+  OWNER: "owner",
+  MANAGER: "manager",
+  STAFF: "staff"
+} as const;
+
+export type UserRoleType = typeof UserRole[keyof typeof UserRole];
+
 type AuthContextType = {
   session: Session | null;
   user: User | null;
   status: AuthStatus;
   signIn: (email: string, password: string) => Promise<AuthResponseType>;
   signInWithGoogle: () => Promise<void>;
-  signUp: (email: string, password: string) => Promise<AuthResponseType & { needsEmailVerification?: boolean }>;
+  signUp: (email: string, password: string, role?: UserRoleType) => Promise<AuthResponseType & { needsEmailVerification?: boolean }>;
   signOut: () => Promise<void>;
   resetPassword: (email: string) => Promise<AuthResponseType>;
   updatePassword: (password: string) => Promise<AuthResponseType>;
+  isRulesSetupRequired: () => boolean;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -42,13 +52,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<AuthStatus>('LOADING');
+  const [userRole, setUserRole] = useState<UserRoleType | null>(null);
+
+  // Check if rules setup is required
+  const isRulesSetupRequired = () => {
+    return localStorage.getItem('rules_setup_required') === 'true' && 
+           localStorage.getItem('rules_setup_completed') !== 'true';
+  };
 
   useEffect(() => {
     // Get initial session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setUser(session?.user ?? null);
-      setStatus(session ? 'AUTHENTICATED' : 'UNAUTHENTICATED');
+      
+      // Check if user needs to complete rules setup
+      if (session) {
+        // Try to get role from localStorage
+        const storedRole = localStorage.getItem('user_role');
+        if (storedRole) {
+          setUserRole(storedRole as UserRoleType);
+        }
+        
+        if (isRulesSetupRequired()) {
+          setStatus('RULES_SETUP_REQUIRED');
+        } else {
+          setStatus('AUTHENTICATED');
+        }
+      } else {
+        setStatus('UNAUTHENTICATED');
+      }
     });
 
     // Listen for auth changes
@@ -60,11 +93,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         // Handle special cases for email verification
         if (event === 'SIGNED_IN') {
-          setStatus('AUTHENTICATED');
+          // Check if user needs to complete rules setup
+          if (isRulesSetupRequired()) {
+            setStatus('RULES_SETUP_REQUIRED');
+          } else {
+            setStatus('AUTHENTICATED');
+          }
         } else if (event === 'SIGNED_OUT') {
           setStatus('UNAUTHENTICATED');
+          setUserRole(null);
         } else if (event === 'USER_UPDATED') {
-          setStatus(session ? 'AUTHENTICATED' : 'UNAUTHENTICATED');
+          if (session) {
+            // Check if user needs to complete rules setup
+            if (isRulesSetupRequired()) {
+              setStatus('RULES_SETUP_REQUIRED');
+            } else {
+              setStatus('AUTHENTICATED');
+            }
+          } else {
+            setStatus('UNAUTHENTICATED');
+          }
         }
       }
     );
@@ -80,7 +128,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (response.error) {
       setStatus('UNAUTHENTICATED');
     } else if (response.data.session) {
-      setStatus('AUTHENTICATED');
+      // Check if user needs to complete rules setup
+      if (isRulesSetupRequired()) {
+        setStatus('RULES_SETUP_REQUIRED');
+      } else {
+        setStatus('AUTHENTICATED');
+      }
+      
+      // Sync with backend to get user role
+      await syncWithBackend(response.data.session.access_token);
     }
     
     return response;
@@ -95,12 +151,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
   };
 
-  const signUp = async (email: string, password: string) => {
+  // Sync user with backend
+  const syncWithBackend = async (token: string, role?: UserRoleType) => {
+    try {
+      const userData = role ? { role } : {};
+      
+      const response = await fetch(`${API_URL}/supabase-auth/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(userData)
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.role) {
+          localStorage.setItem('user_role', data.role);
+          setUserRole(data.role as UserRoleType);
+        }
+      } else {
+        console.error('Failed to sync user with backend');
+      }
+    } catch (error) {
+      console.error('Error syncing with backend:', error);
+    }
+  };
+
+  const signUp = async (email: string, password: string, role: UserRoleType = UserRole.STAFF) => {
+    // Save role in localStorage for later use
+    localStorage.setItem('user_role', role);
+    setUserRole(role);
+    
     const response = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: `${window.location.origin}/auth/callback`,
+        data: {
+          role: role // Store role in Supabase user metadata
+        }
       },
     });
     
@@ -110,7 +201,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (needsEmailVerification) {
       setStatus('EMAIL_VERIFICATION_NEEDED');
     } else if (response.data.session) {
-      setStatus('AUTHENTICATED');
+      // Automatically set rules setup required for new users
+      localStorage.setItem('rules_setup_required', 'true');
+      setStatus('RULES_SETUP_REQUIRED');
+      
+      // Sync with backend, passing the role
+      await syncWithBackend(response.data.session.access_token, role);
     }
     
     return { ...response, needsEmailVerification };
@@ -137,14 +233,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       // Sign out from Supabase
       await supabase.auth.signOut();
-      setStatus('UNAUTHENTICATED');
       
-      // Clear any cached sync status
+      // Verify the session is cleared
+      const { data } = await supabase.auth.getSession();
+      if (data.session) {
+        console.warn('Session still exists after logout, forcing cleanup');
+        // Force session cleanup if still exists
+        await supabase.auth.signOut({ scope: 'local' });
+      }
+      
+      setStatus('UNAUTHENTICATED');
+      setSession(null);
+      setUser(null);
+      setUserRole(null);
+      
+      // Clear any cached sync status and local storage items
       localStorage.removeItem('supabase_sync_status');
+      localStorage.removeItem('rules_setup_required');
+      localStorage.removeItem('rules_setup_completed');
+      localStorage.removeItem('user_role');
+      
+      // Additional cleanup for any other potential auth data
+      sessionStorage.clear(); // Clear any session storage data
+      
+      console.log('Logout completed successfully');
     } catch (error) {
       console.error('Error during sign out:', error);
       // Still set status to unauthenticated even if there was an error
       setStatus('UNAUTHENTICATED');
+      setSession(null);
+      setUser(null);
+      setUserRole(null);
     }
   };
   
@@ -170,6 +289,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signOut,
     resetPassword,
     updatePassword,
+    isRulesSetupRequired,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

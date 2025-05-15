@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useToast } from "@/components/ui/use-toast"
 import { Eye, EyeOff } from "lucide-react"
-import { useAuth } from "@/lib/AuthContext"
+import { useAuth, UserRole } from "@/lib/AuthContext"
+import type { UserRoleType } from "@/lib/AuthContext"
 
 const signupFormSchema = z.object({
     username: z
@@ -67,8 +68,23 @@ export function SignupForm() {
                 return
             }
 
+            // Convert form role value to UserRole enum value
+            let userRole: UserRoleType;
+            switch (data.role) {
+                case "owner":
+                    userRole = UserRole.OWNER;
+                    break;
+                case "manager":
+                    userRole = UserRole.MANAGER;
+                    break;
+                case "staff":
+                default:
+                    userRole = UserRole.STAFF;
+                    break;
+            }
+
             // Register the user with Supabase
-            const response = await signUp(data.email, data.password)
+            const response = await signUp(data.email, data.password, userRole)
 
             if (response.error) {
                 throw new Error(response.error.message || "Failed to create account")
@@ -90,9 +106,10 @@ export function SignupForm() {
 
             navigate("/dashboard")
         } catch (error: any) {
+            console.error("Signup error:", error)
             toast({
                 title: "Error",
-                description: error.message || "Something went wrong. Please try again.",
+                description: error.message || "Failed to create account",
                 variant: "destructive",
             })
         } finally {
