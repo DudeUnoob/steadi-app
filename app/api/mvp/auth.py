@@ -2,15 +2,18 @@ from datetime import datetime, timedelta
 from typing import Optional
 from jose import JWTError, jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlmodel import Session, select
 from app.db.database import get_db
 from app.models.data_models.User import User
 from app.models.enums.UserRole import UserRole
+from app.api.auth.supabase import get_token_from_header
 
 import os
+import logging
 
+logger = logging.getLogger(__name__)
 
 SECRET_KEY = os.getenv("JWT_SECRET", )
 ALGORITHM = os.getenv("ALGORITHM", )
@@ -95,4 +98,36 @@ def get_manager_user(current_user: User = Depends(get_current_user)):
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
         )
-    return current_user 
+    return current_user
+
+def get_current_user_from_supabase(request: Request):
+    """Get current user from Supabase token"""
+    token = get_token_from_header(request)
+    if token:
+        try:
+            user = get_current_user(token)
+            return user
+        except Exception as e:
+            logger.error(f"Error getting user from Supabase: {e}")
+    return None
+
+def get_current_active_user_from_supabase(request: Request):
+    """Get current active user from Supabase token"""
+    user = get_current_user_from_supabase(request)
+    if user:
+        return get_current_active_user(user)
+    return None
+
+def get_owner_user_from_supabase(request: Request):
+    """Get owner user from Supabase token"""
+    user = get_current_user_from_supabase(request)
+    if user:
+        return get_owner_user(user)
+    return None
+
+def get_manager_user_from_supabase(request: Request):
+    """Get manager user from Supabase token"""
+    user = get_current_user_from_supabase(request)
+    if user:
+        return get_manager_user(user)
+    return None 
