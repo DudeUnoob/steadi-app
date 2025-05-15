@@ -1,8 +1,0 @@
-{
-  "dependencies": {
-    "@supabase/supabase-js": "^2.49.4",
-    "lucide-react": "^0.509.0",
-    "radix-ui": "^1.4.1",
-    "supabase": "^2.22.12"
-  }
-}
