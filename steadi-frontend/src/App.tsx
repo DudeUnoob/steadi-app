@@ -5,8 +5,10 @@ import { AuthCallback } from './components/auth/AuthCallback'
 import { ProtectedRoute } from './components/auth/ProtectedRoute'
 import { SyncBackend } from './components/auth/SyncBackend'
 import { ResetPassword } from './components/auth/ResetPassword'
+import { VerifyEmail } from './components/auth/VerifyEmail'
 import Dashboard from './components/dashboard/dashboard'
 import { NewAuthPage } from './components/auth/Page'
+import RulesPage from './components/auth/Rules'
 import { Toaster } from './components/ui/toaster'
 
 function LandingPage() {
@@ -70,12 +72,20 @@ function App() {
         <Route path="/auth" element={<NewAuthPage />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/auth/reset-password" element={<ResetPassword />} />
+        <Route path="/auth/verify-email" element={<VerifyEmail />} />
+        <Route path="/auth/rules" element={
+          <ProtectedRoute requireRulesCompleted={false}>
+            <RulesPage />
+          </ProtectedRoute>
+        } />
         
         {/* Protected routes */}
-        <Route element={<ProtectedRoute />}>
-          <Route path="/dashboard" element={<Dashboard />} />
-          {/* Add other protected routes here */}
-        </Route>
+        <Route path="/dashboard" element={
+          <ProtectedRoute>
+            <Dashboard />
+          </ProtectedRoute>
+        } />
+        {/* Add other protected routes here */}
       </Routes>
 
       {/* Toast notifications */}

@@ -7,6 +7,7 @@ from app.routers.edit import router as edit_router
 from app.routers.alerts import router as alerts_router
 from app.routers.cron import router as cron_router
 from app.routers.supabase_auth import router as supabase_auth_router
+from app.routers.rules import router as rules_router
 from app.routers.inventory import router as inventory_router
 import os
 from dotenv import load_dotenv
@@ -66,6 +67,7 @@ app.include_router(edit_router)
 app.include_router(alerts_router)
 app.include_router(cron_router)
 app.include_router(supabase_auth_router)
+app.include_router(rules_router)
 
 @app.on_event("startup")
 def on_startup():

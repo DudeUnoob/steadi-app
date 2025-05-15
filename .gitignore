@@ -1,14 +1,12 @@
 .env
-/app/routers/__pycache__
-/app/models/__pycache__
-/app/models/data_models/__pycache__
-/app/models/enums/__pycache__
-
-/app/__pycache__ 
 
 .venv/
 venv/
-app/models/service_classes/__pycache__
-app/api/mvp/__pycache__
-app/routers/__pycache__
-app/__pycache__
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.coverage
+htmlcov/
