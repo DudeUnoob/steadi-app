@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card } from "@/components/ui/card"
-import { SignupForm } from "./SignupForm"
+import { SignupForm } from "./SignUpForm"
 import { LoginForm } from "./LoginForm"
 import { AuthHeader } from "./AuthHeader"
 

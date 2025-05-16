@@ -143,14 +143,18 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
             token = tokenData.access_token;
             
             // Calculate expiry (subtract 5 minutes for safety margin)
-            const payload = JSON.parse(atob(token.split('.')[1]));
-            const expiryTime = payload.exp * 1000 - (5 * 60 * 1000);
-            
-            // Store the new token and expiry
-            localStorage.setItem('backend_token', token);
-            localStorage.setItem('backend_token_expiry', expiryTime.toString());
-            
-            console.log('Received and stored new backend token');
+            if (token) {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                const expiryTime = payload.exp * 1000 - (5 * 60 * 1000);
+                
+                // Store the new token and expiry
+                localStorage.setItem('backend_token', token);
+                localStorage.setItem('backend_token_expiry', expiryTime.toString());
+                
+                console.log('Received and stored new backend token');
+            } else {
+                throw new Error('Token exchange did not return a valid token');
+            }
         } catch (error) {
             console.error('Error exchanging token:', error);
             throw new Error(`Failed to exchange authentication token: ${error instanceof Error ? error.message : String(error)}`);
@@ -193,8 +197,6 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
     
     // Check final response
     if (!response.ok) {
-        // Clone response and get both text and possible JSON for better debugging
-        const clonedResponse = response.clone();
         const errorText = await response.text();
         
         try {
@@ -216,7 +218,7 @@ export default function RulesPage() {
     const navigate = useNavigate()
     const location = useLocation()
     const { toast } = useToast()
-    const { user, session } = useAuth()
+    useAuth()
     const [activeTab, setActiveTab] = useState<string>("staff")
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [isLoading, setIsLoading] = useState(true)

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { useNavigate } from "react-router-dom"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import { z } from "zod"
@@ -19,7 +19,7 @@ const orgFormSchema = z.object({
 type OrgFormValues = z.infer<typeof orgFormSchema>
 
 export default function OrganizationPage() {
-    const router = useRouter()
+    const navigate = useNavigate()
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     const form = useForm<OrgFormValues>({
@@ -51,7 +51,7 @@ export default function OrganizationPage() {
                 description: "You have successfully joined the organization.",
             })
 
-            router.push("/dashboard")
+            navigate("/dashboard")
         } catch (error) {
             toast({
                 title: "Error",
@@ -139,7 +139,7 @@ export default function OrganizationPage() {
                                     <Button
                                         type="button"
                                         variant="outline"
-                                        onClick={() => router.push("/auth")}
+                                        onClick={() => navigate("/auth")}
                                         className="border-[#2a2a30] bg-transparent"
                                     >
                                         <ArrowLeft className="mr-2 h-4 w-4" />
