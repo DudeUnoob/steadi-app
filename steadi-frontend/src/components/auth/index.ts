@@ -1,4 +1,4 @@
 export { NewAuthPage } from './Page';
 export { AuthHeader } from './AuthHeader';
 export { LoginForm } from './LoginForm';
-export { SignupForm } from './SignupForm'; 
+export { SignupForm } from './SignUpForm'; 
