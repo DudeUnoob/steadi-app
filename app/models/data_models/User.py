@@ -7,7 +7,7 @@ from pydantic import validator
 
 if TYPE_CHECKING:
     from app.models.data_models.Notification import Notification
-    from app.models.data_models.Rules import Rules
+    # from app.models.data_models.Rules import Rules # Import no longer needed for a direct relationship here
 
 class User(SQLModel, table=True):
     """User account with authentication and authorization"""
@@ -20,7 +20,7 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     # Relationships
     notifications: List["Notification"] = Relationship(back_populates="user", sa_relationship_kwargs={"lazy": "selectin"})
-    rules: Optional["Rules"] = Relationship(back_populates="user", sa_relationship_kwargs={"uselist": False})
+    # rules: Optional["Rules"] = Relationship(back_populates="user", sa_relationship_kwargs={"uselist": False}) # Removed
 
     @validator('organization_id')
     def validate_organization_id(cls, v):

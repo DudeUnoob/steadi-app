@@ -1,14 +1,18 @@
 from typing import Optional, TYPE_CHECKING
-from sqlmodel import Field, SQLModel, Relationship
-from uuid import UUID
+from sqlmodel import Field, SQLModel
+
+# UUID is no longer needed as user_id is removed
+# from uuid import UUID
 
 if TYPE_CHECKING:
-    from app.models.data_models.User import User
+    # from app.models.data_models.User import User # No longer needed for a direct relationship
+    pass
 
 class Rules(SQLModel, table=True):
     __tablename__ = "rules"
     
-    user_id: UUID = Field(primary_key=True, foreign_key="user.id")
+    # user_id: UUID = Field(primary_key=True, foreign_key="user.id") # REMOVED
+    organization_id: int = Field(primary_key=True) # ADDED as primary key
     
     # Staff permissions
     staff_view_products: bool = Field(default=True)
@@ -27,13 +31,12 @@ class Rules(SQLModel, table=True):
     manager_edit_sales: bool = Field(default=True)
     manager_set_staff_rules: bool = Field(default=True)
     
-    # Relationship
-    user: "User" = Relationship(back_populates="rules")
-    
-    # Validator for organization_id - REMOVED
+    # Relationship to User removed
+    # user: "User" = Relationship(back_populates="rules") # REMOVED
+
+    # Validator for organization_id can be added here if needed
     # @validator('organization_id')
     # def validate_organization_id(cls, v):
-    #     if v is not None:
-    #         if v < 100000 or v > 999999:
-    #             raise ValueError("Organization ID must be a 6-digit number")
-    #     return v 
+    #     if not (100000 <= v <= 999999): # Example: 6-digit ID
+    #         raise ValueError("Organization ID must be a 6-digit number")
+    #     return v
