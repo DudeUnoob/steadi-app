@@ -1,15 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlmodel import Session
 from typing import Optional, Union, Dict, Any
-from uuid import UUID
 from sqlalchemy import select
-from pydantic import BaseModel
 
 from app.db.database import get_db
 from app.api.mvp.auth import get_current_user, get_owner_user, get_manager_user
 from app.api.auth.supabase import get_optional_supabase_user, get_token_from_header
 from app.routers.supabase_auth import convert_role_to_enum
-from app.api.mvp.rules import get_rules_by_user_id, create_rules, update_rules, delete_rules, generate_organization_id, get_default_rules
+from app.api.mvp.rules import get_rules_by_organization_id, create_rules, update_rules, delete_rules, generate_organization_id, get_default_rules
 from app.schemas.data_models.Rules import RulesCreate, RulesUpdate, RulesRead
 from app.models.data_models.User import User
 from app.models.enums.UserRole import UserRole
@@ -24,22 +22,13 @@ router = APIRouter(
     responses={404: {"description": "Not found"}},
 )
 
-# Define a new response model that includes organization_id from the User
-class RulesReadWithOrg(RulesRead):
-    organization_id: Optional[int] = None
-    # We can make other fields from RulesRead explicit if needed, or rely on inheritance
-    # For clarity, if RulesRead is simple, we could redefine all fields:
-    # staff_view_products: bool
-    # ... all other permission fields from RulesRead ...
-    # user_id: UUID # Assuming RulesRead has user_id, if not, add it.
-
-@router.get("/me", response_model=RulesReadWithOrg)
-async def get_my_rules(
+@router.get("/me", response_model=RulesRead)
+async def get_my_organization_rules(
     request: Request,
     db: Session = Depends(get_db),
     current_user: Optional[User] = Depends(get_current_user)
 ):
-    """Get rules for the current authenticated user, including their organization_id."""
+    """Get rules for the current authenticated user's organization."""
     user = current_user
     
     if user is None:
@@ -72,13 +61,13 @@ async def get_my_rules(
     if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
 
-    rules = get_rules_by_user_id(db, user.id)
+    rules = get_rules_by_organization_id(db, user.organization_id)
     
     if not rules:
-        logger.info(f"No rules found for user {user.id}. Creating default rules.")
+        logger.info(f"No rules found for organization {user.organization_id} (user {user.id}). Creating default rules.")
         # get_default_rules no longer takes organization_id
         default_rules_data = get_default_rules(user.role)
-        rules = create_rules(db, user.id, default_rules_data)
+        rules = create_rules(db, user.organization_id, default_rules_data)
         # User.organization_id must be handled here if it's a new user setting up org
         # This usually happens on POST, but GET might be the first time for a new Supabase user
         if user.organization_id is None: # If user has no org ID yet, generate one
@@ -91,23 +80,23 @@ async def get_my_rules(
         if user: db.refresh(user) # Refresh user if modified
 
     # Populate the response model
-    response_data = rules.dict() # Get dict from the Rules object
-    response_data['organization_id'] = user.organization_id # Add user's org ID
-    # Ensure all fields expected by RulesReadWithOrg are present
-    # If RulesRead has user_id, it should be in rules.dict(). If not, and RulesReadWithOrg needs it, add: response_data['user_id'] = user.id 
+    # RulesRead now expects organization_id, which is the PK of the rules object.
+    # So rules.dict() should contain it.
+    # response_data = rules.dict() 
+    # response_data['organization_id'] = user.organization_id # This should be part of rules object itself
+    # return RulesRead(**response_data) # FastAPI handles serialization from model instance to response_model
+    return rules
 
-    return RulesReadWithOrg(**response_data)
-
-@router.post("/me", response_model=RulesReadWithOrg)
-async def create_my_rules(
+@router.post("/me", response_model=RulesRead)
+async def create_or_update_my_organization_rules(
     request: Request,
     rules_data: RulesCreate,
-    db: Session = Depends(get_db)
-    # current_user: Optional[User] = Depends(get_current_user) # Temporarily remove direct dependency injection
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user)
 ):
-    """Create or update rules for the current authenticated user. Manages User.organization_id."""
+    """Create or update rules for the current authenticated user's organization."""
     
-    user: Optional[User] = None
+    user = current_user
     token: Optional[str] = None
     is_new_user_session = False
 
@@ -191,87 +180,97 @@ async def create_my_rules(
             logger.info(f"Generated new organization ID {user.organization_id} for user {user.id} in POST /rules/me.")
             db.add(user) 
         
-        existing_rules = get_rules_by_user_id(db, user.id)
+        existing_rules = get_rules_by_organization_id(db, user.organization_id)
         rules_to_return = None
         
         if existing_rules:
-            logger.info(f"Updating existing rules for user {user.id}.")
+            logger.info(f"Updating existing rules for organization {user.organization_id} (user {user.id}).")
             rules_update_payload = RulesUpdate(**rules_data.dict(exclude_unset=True))
-            rules_to_return = update_rules(db, user.id, rules_update_payload)
+            rules_to_return = update_rules(db, user.organization_id, rules_update_payload)
             if not rules_to_return:
-                 raise HTTPException(status_code=500, detail="Failed to update rules.")
+                 raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update rules.")
         else:
-            logger.info(f"Creating new rules for user {user.id}.")
-            rules_to_return = create_rules(db, user.id, rules_data)
+            logger.info(f"Creating new rules for organization {user.organization_id} (user {user.id}).")
+            rules_to_return = create_rules(db, user.organization_id, rules_data)
         
         db.commit()
-        logger.info(f"Committed rules and user updates for user {user.id}. User OrgID: {user.organization_id}")
+        logger.info(f"Committed rules and user updates for organization {user.organization_id}. User OrgID: {user.organization_id}")
         
         db.refresh(user)
         db.refresh(rules_to_return)
 
-        response_data = rules_to_return.dict()
-        response_data['organization_id'] = user.organization_id
-        
-        return RulesReadWithOrg(**response_data)
+        return rules_to_return
 
     except ValueError as e:
-        logger.error(f"ValueError during rules processing for user {user.id}: {str(e)}")
+        logger.error(f"ValueError during rules processing for organization {user.organization_id} (user {user.id}): {str(e)}")
         db.rollback()
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        logger.error(f"Unexpected error during POST /rules/me for user {user.id if user and user.id else 'Unknown'}: {str(e)}")
+        logger.error(f"Unexpected error during POST /rules/me for organization {user.organization_id} (user {user.id if user and user.id else 'Unknown'}): {str(e)}")
         db.rollback()
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred while processing rules.")
 
-@router.get("/{user_id}", response_model=RulesRead)
-async def get_user_rules(
-    user_id: UUID,
-    current_user: User = Depends(get_manager_user),  # Only managers and owners can access other users' rules
-    db: Session = Depends(get_db)
+@router.get("/{organization_id}", response_model=RulesRead)
+async def get_organization_rules(
+    organization_id: int,
+    db: Session = Depends(get_db),
+    requesting_user: User = Depends(get_current_user)
 ):
-    """Get rules for a specific user (manager/owner only)"""
-    rules = get_rules_by_user_id(db, user_id)
+    """Get rules for a specific organization (manager/owner of that org, or superuser)."""
+    if requesting_user.organization_id != organization_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User does not belong to the specified organization.")
+    
+    if requesting_user.role not in [UserRole.MANAGER, UserRole.OWNER]:
+         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User does not have sufficient permissions in this organization.")
+
+    rules = get_rules_by_organization_id(db, organization_id)
     
     if not rules:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rules not found"
+            detail=f"Rules not found for organization {organization_id}"
         )
     
     return rules
 
-@router.patch("/{user_id}", response_model=RulesRead)
-async def update_user_rules(
-    user_id: UUID,
+@router.patch("/{organization_id}", response_model=RulesRead)
+async def update_organization_rules(
+    organization_id: int,
     rules_data: RulesUpdate,
-    current_user: User = Depends(get_owner_user),  # Only owners can update other users' rules
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    requesting_user: User = Depends(get_owner_user)
 ):
-    """Update rules for a specific user (owner only)"""
-    rules = update_rules(db, user_id, rules_data)
+    """Update rules for a specific organization (owner of that org, or superuser)."""
+    if requesting_user.organization_id != organization_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User cannot update rules for this organization.")
+
+    rules = update_rules(db, organization_id, rules_data)
     
     if not rules:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rules not found"
+            detail=f"Rules not found for organization {organization_id} to update."
         )
     
+    db.commit()
+    db.refresh(rules)
     return rules
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_user_rules(
-    user_id: UUID,
-    current_user: User = Depends(get_owner_user),  # Only owners can delete rules
-    db: Session = Depends(get_db)
+@router.delete("/{organization_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_organization_rules(
+    organization_id: int,
+    db: Session = Depends(get_db),
+    requesting_user: User = Depends(get_owner_user)
 ):
-    """Delete rules for a specific user (owner only)"""
-    success = delete_rules(db, user_id)
-    
-    if not success:
+    """Delete rules for a specific organization (owner of that org, or superuser)."""
+    if requesting_user.organization_id != organization_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User cannot delete rules for this organization.")
+
+    if not delete_rules(db, organization_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Rules not found"
+            detail=f"Rules not found for organization {organization_id} to delete."
         )
     
-    return {"message": "Rules deleted successfully"} 
+    db.commit()
+    return 

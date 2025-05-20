@@ -43,7 +43,7 @@ class RulesUpdate(RulesBase):
     manager_set_staff_rules: Optional[bool] = None
 
 class RulesRead(RulesBase):
-    user_id: UUID
+    organization_id: int
     
     class Config:
         orm_mode = True 
