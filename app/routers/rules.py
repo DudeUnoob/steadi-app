@@ -13,6 +13,7 @@ from app.api.mvp.rules import get_rules_by_user_id, create_rules, update_rules, 
 from app.schemas.data_models.Rules import RulesCreate, RulesUpdate, RulesRead
 from app.models.data_models.User import User
 from app.models.enums.UserRole import UserRole
+from app.api.permissions import require_set_staff_rules
 
 import logging
 
@@ -224,13 +225,13 @@ async def create_my_rules(
         db.rollback()
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="An unexpected error occurred.")
 
-@router.get("/{user_id}", response_model=RulesRead)
+@router.get("/{user_id}", response_model=RulesRead, dependencies=[Depends(require_set_staff_rules())])
 async def get_user_rules(
     user_id: UUID,
-    current_user: User = Depends(get_manager_user),  # Only managers and owners can access other users' rules
+    current_user: User = Depends(get_current_user),  # Now using permission check instead of role check
     db: Session = Depends(get_db)
 ):
-    """Get rules for a specific user (manager/owner only)"""
+    """Get rules for a specific user (requires set_staff_rules permission)"""
     rules = get_rules_by_user_id(db, user_id)
     
     if not rules:
@@ -241,14 +242,14 @@ async def get_user_rules(
     
     return rules
 
-@router.patch("/{user_id}", response_model=RulesRead)
+@router.patch("/{user_id}", response_model=RulesRead, dependencies=[Depends(require_set_staff_rules())])
 async def update_user_rules(
     user_id: UUID,
     rules_data: RulesUpdate,
-    current_user: User = Depends(get_owner_user),  # Only owners can update other users' rules
+    current_user: User = Depends(get_current_user),  # Now using permission check instead of role check
     db: Session = Depends(get_db)
 ):
-    """Update rules for a specific user (owner only)"""
+    """Update rules for a specific user (requires set_staff_rules permission)"""
     rules = update_rules(db, user_id, rules_data)
     
     if not rules:
@@ -259,13 +260,13 @@ async def update_user_rules(
     
     return rules
 
-@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT, dependencies=[Depends(require_set_staff_rules())])
 async def delete_user_rules(
     user_id: UUID,
-    current_user: User = Depends(get_owner_user),  # Only owners can delete rules
+    current_user: User = Depends(get_current_user),  # Now using permission check instead of role check
     db: Session = Depends(get_db)
 ):
-    """Delete rules for a specific user (owner only)"""
+    """Delete rules for a specific user (requires set_staff_rules permission)"""
     success = delete_rules(db, user_id)
     
     if not success:
@@ -274,4 +275,4 @@ async def delete_user_rules(
             detail="Rules not found"
         )
     
-    return {"message": "Rules deleted successfully"} 
+    return {"message": "Rules deleted successfully"}

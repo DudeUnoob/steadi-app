@@ -21,28 +21,40 @@ class EditService:
         self.analytics_service = AnalyticsService(db)
     
     # Product management
-    def create_product(self, product_data: Dict[str, Any], user_id: UUID) -> Product:
+    def create_product(self, product_data: Dict[str, Any], user_id: UUID, organization_id: int = None) -> Product:
         """Create a new product with validation and alerts setup"""
         try:
-            # Ensure user_id is set
+            # Ensure user_id and organization_id are set
             product_data["user_id"] = user_id
+            if organization_id:
+                product_data["organization_id"] = organization_id
             
-            # Check if product with same SKU already exists for this user
-            existing = self.db.exec(select(Product).where(
-                (Product.sku == product_data.get("sku")) &
-                (Product.user_id == user_id)
-            )).first()
+            # Check if product with same SKU already exists in this organization
+            query = select(Product).where(Product.sku == product_data.get("sku"))
+            
+            # Filter by organization if available, otherwise fallback to user_id
+            if organization_id:
+                query = query.where(Product.organization_id == organization_id)
+            else:
+                query = query.where(Product.user_id == user_id)
+                
+            existing = self.db.exec(query).first()
             
             if existing:
                 return {"error": "Product with this SKU already exists"}
             
-            # Validate supplier exists and belongs to the user
+            # Validate supplier exists and belongs to the organization/user
             supplier_id = product_data.get("supplier_id")
             if supplier_id:
-                supplier = self.db.exec(select(Supplier).where(
-                    (Supplier.id == supplier_id) &
-                    (Supplier.user_id == user_id)
-                )).first()
+                supplier_query = select(Supplier).where(Supplier.id == supplier_id)
+                
+                # Filter by organization if available, otherwise fallback to user_id
+                if organization_id:
+                    supplier_query = supplier_query.where(Supplier.organization_id == organization_id)
+                else:
+                    supplier_query = supplier_query.where(Supplier.user_id == user_id)
+                    
+                supplier = self.db.exec(supplier_query).first()
                 
                 if not supplier:
                     return {"error": "Supplier not found or you don't have permission to access it"}
@@ -70,39 +82,49 @@ class EditService:
             self.db.commit()
             self.db.refresh(product)
             
-            logger.info(f"Created product: {product.sku} - {product.name}")
+            logger.info(f"Created product: {product.sku} - {product.name} for organization {product.organization_id}")
             return product
         except Exception as e:
             self.db.rollback()
             logger.error(f"Error creating product: {str(e)}")
             return {"error": str(e)}
     
-    def update_product(self, product_id: UUID, product_data: Dict[str, Any], user_id: UUID) -> Product:
+    def update_product(self, product_id: UUID, product_data: Dict[str, Any], user_id: UUID, organization_id: int = None) -> Product:
         """Update an existing product with alert recalculation"""
         try:
-            # Find product by ID and ensure it belongs to the user
-            product = self.db.exec(select(Product).where(
-                (Product.id == product_id) &
-                (Product.user_id == user_id)
-            )).first()
+            # Find product by ID and ensure it belongs to the organization/user
+            query = select(Product).where(Product.id == product_id)
+            
+            # Filter by organization if available, otherwise fallback to user_id
+            if organization_id:
+                query = query.where(Product.organization_id == organization_id)
+            else:
+                query = query.where(Product.user_id == user_id)
+                
+            product = self.db.exec(query).first()
             
             if not product:
                 return {"error": "Product not found or you don't have permission to access it"}
             
-            # If supplier changed, validate new supplier exists and belongs to the user
+            # If supplier changed, validate new supplier exists and belongs to the organization/user
             if "supplier_id" in product_data:
                 supplier_id = product_data["supplier_id"]
-                supplier = self.db.exec(select(Supplier).where(
-                    (Supplier.id == supplier_id) &
-                    (Supplier.user_id == user_id)
-                )).first()
+                supplier_query = select(Supplier).where(Supplier.id == supplier_id)
+                
+                # Filter by organization if available, otherwise fallback to user_id
+                if organization_id:
+                    supplier_query = supplier_query.where(Supplier.organization_id == organization_id)
+                else:
+                    supplier_query = supplier_query.where(Supplier.user_id == user_id)
+                    
+                supplier = self.db.exec(supplier_query).first()
                 
                 if not supplier:
                     return {"error": "Supplier not found or you don't have permission to access it"}
             
-            # Update fields but don't allow changing user_id
+            # Update fields but don't allow changing user_id or organization_id
             for key, value in product_data.items():
-                if key != "user_id":
+                if key not in ["user_id", "organization_id"]:
                     setattr(product, key, value)
             
             # Recalculate alert level if inventory-related fields changed
@@ -123,32 +145,40 @@ class EditService:
             self.db.commit()
             self.db.refresh(product)
             
-            logger.info(f"Updated product: {product.sku} - {product.name}")
+            logger.info(f"Updated product: {product.sku} - {product.name} for organization {product.organization_id}")
             return product
         except Exception as e:
             self.db.rollback()
             logger.error(f"Error updating product: {str(e)}")
             return {"error": str(e)}
     
-    def delete_product(self, product_id: UUID, user_id: UUID) -> Dict[str, str]:
+    def delete_product(self, product_id: UUID, user_id: UUID, organization_id: int = None) -> Dict[str, str]:
         """Delete a product after checking dependencies"""
         try:
-            # Find product by ID and ensure it belongs to the user
-            product = self.db.exec(select(Product).where(
-                (Product.id == product_id) &
-                (Product.user_id == user_id)
-            )).first()
+            # Find product by ID and ensure it belongs to the organization/user
+            query = select(Product).where(Product.id == product_id)
+            
+            # Filter by organization if available, otherwise fallback to user_id
+            if organization_id:
+                query = query.where(Product.organization_id == organization_id)
+            else:
+                query = query.where(Product.user_id == user_id)
+                
+            product = self.db.exec(query).first()
             
             if not product:
                 return {"error": "Product not found or you don't have permission to access it"}
             
             # Check if product has sales
-            sales_count = self.db.exec(
-                select(func.count()).select_from(Sale).where(
-                    (Sale.product_id == product_id) &
-                    (Sale.user_id == user_id)
-                )
-            ).one()
+            sales_query = select(func.count()).select_from(Sale).where(Sale.product_id == product_id)
+            
+            # Filter by organization if available
+            if organization_id:
+                sales_query = sales_query.where(Sale.organization_id == organization_id)
+            else:
+                sales_query = sales_query.where(Sale.user_id == user_id)
+                
+            sales_count = self.db.exec(sales_query).one()
             
             if sales_count > 0:
                 return {"error": f"Cannot delete product with {sales_count} associated sales"}
@@ -157,19 +187,25 @@ class EditService:
             self.db.delete(product)
             self.db.commit()
             
-            logger.info(f"Deleted product: {sku}")
+            logger.info(f"Deleted product: {sku} for organization {product.organization_id}")
             return {"message": f"Product {sku} deleted successfully"}
         except Exception as e:
             self.db.rollback()
             logger.error(f"Error deleting product: {str(e)}")
             return {"error": str(e)}
     
-    def get_products(self, user_id: UUID) -> List[Product]:
-        """Get all products for a user"""
+    def get_products(self, user_id: UUID, organization_id: int = None) -> List[Product]:
+        """Get all products for a user or organization"""
         try:
-            products = self.db.exec(select(Product).where(
-                Product.user_id == user_id
-            )).all()
+            query = select(Product)
+            
+            # Filter by organization if available, otherwise fallback to user_id
+            if organization_id:
+                query = query.where(Product.organization_id == organization_id)
+            else:
+                query = query.where(Product.user_id == user_id)
+                
+            products = self.db.exec(query).all()
             return products
         except Exception as e:
             logger.error(f"Error getting products: {str(e)}")

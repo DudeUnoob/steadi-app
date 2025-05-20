@@ -26,6 +26,7 @@ class Product(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     alert_level: Optional[AlertLevel] = None
     user_id: UUID = Field(foreign_key="user.id")
+    organization_id: Optional[int] = Field(default=None, nullable=True, index=True)
     
     
     supplier: Optional["Supplier"] = Relationship(back_populates="products")

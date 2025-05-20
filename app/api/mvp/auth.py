@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 from app.db.database import get_db
 from app.models.data_models.User import User
 from app.models.enums.UserRole import UserRole
-from app.api.auth.supabase import get_token_from_header
+from app.api.auth.supabase import get_token_from_header, get_current_supabase_user
 
 import os
 import logging
@@ -177,4 +177,63 @@ def get_manager_user_from_supabase(request: Request):
     user = get_current_user_from_supabase(request)
     if user:
         return get_manager_user(user)
-    return None 
+    return None
+
+# Add get_authenticated_user - a combined auth function
+async def get_authenticated_user(
+    request: Request,
+    token_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    Combined authentication that works with both JWT tokens and Supabase tokens.
+    First tries traditional JWT auth, and if that fails, tries Supabase auth.
+    Returns the authenticated user or raises an authentication error.
+    """
+    # If traditional JWT auth worked, use that user
+    if token_user:
+        logger.info(f"User authenticated via JWT: {token_user.email}")
+        return token_user
+    
+    try:
+        # Try Supabase auth if JWT fails
+        supabase_user = await get_current_supabase_user(request)
+        supabase_id = supabase_user.get("id")
+        
+        if not supabase_id:
+            logger.error("Supabase user has no ID")
+            raise HTTPException(status_code=401, detail="Invalid Supabase user information")
+        
+        # Find user by Supabase ID
+        user = db.exec(select(User).where(User.supabase_id == supabase_id)).first()
+        
+        if not user:
+            # This shouldn't happen if the sync endpoint is working properly
+            logger.error(f"No user found for Supabase ID: {supabase_id}")
+            raise HTTPException(status_code=401, detail="User not found in system")
+        
+        logger.info(f"User authenticated via Supabase: {user.email}")
+        return user
+    except Exception as e:
+        logger.error(f"Authentication error: {str(e)}")
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+# Combined authentication for manager operations
+async def get_authenticated_manager(
+    request: Request,
+    token_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> User:
+    """
+    Combined authentication with role check for manager/owner operations.
+    """
+    user = await get_authenticated_user(request, token_user, db)
+    
+    if user.role not in [UserRole.OWNER, UserRole.MANAGER]:
+        logger.error(f"User {user.email} has insufficient permissions: {user.role}")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not enough permissions"
+        )
+    
+    return user

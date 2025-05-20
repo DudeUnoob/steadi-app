@@ -14,6 +14,7 @@ class PurchaseOrder(SQLModel, table=True):
     supplier_id: UUID = Field(foreign_key="supplier.id", index=True)
     status: POStatus = Field(default=POStatus.DRAFT, index=True)
     created_by: UUID = Field(foreign_key="user.id")
+    organization_id: Optional[int] = Field(default=None, nullable=True, index=True)
     pdf_url: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)

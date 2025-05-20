@@ -15,6 +15,7 @@ class Sale(SQLModel, table=True):
     sale_date: datetime = Field(default_factory=datetime.utcnow)
     notes: Optional[str] = None
     user_id: UUID = Field(foreign_key="user.id")
+    organization_id: Optional[int] = Field(default=None, nullable=True, index=True)
     
     
     product: "Product" = Relationship(back_populates="sales")
