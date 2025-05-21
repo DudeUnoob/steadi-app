@@ -224,37 +224,7 @@ export function ProductsTable() {
     }
   }
 
-  // Handle stock update
-  const handleStockUpdate = async (data: { on_hand: number }) => {
-    if (!selectedProduct) return
-    
-    try {
-      // Validate UUID
-      if (!selectedProduct.id || selectedProduct.id === "00000000-0000-0000-0000-000000000000") {
-        throw new Error("Cannot update product: Invalid product ID");
-      }
-      
-      // Log the ID being used
-      console.log(`Updating stock for product with ID: ${selectedProduct.id}`);
-      
-      await productsApi.update(selectedProduct.id, data)
-      toast({
-        title: "Stock updated",
-        description: "The product stock has been updated successfully.",
-      })
-      fetchProducts()
-    } catch (error) {
-      console.error("Error updating stock:", error)
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "An error occurred while updating the stock.",
-        variant: "destructive",
-      })
-    } finally {
-      setUpdateStockDialogOpen(false)
-      setSelectedProduct(null)
-    }
-  }
+  
 
   const columns: ColumnDef<Product>[] = [
     {

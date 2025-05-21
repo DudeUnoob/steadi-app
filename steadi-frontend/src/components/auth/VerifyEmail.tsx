@@ -1,10 +1,8 @@
 import { ShieldCheck } from "lucide-react";
-import { useAuth } from "../../lib/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 
 export function VerifyEmail() {
-  const { status } = useAuth();
   const navigate = useNavigate();
 
   const handleBackToLogin = () => {

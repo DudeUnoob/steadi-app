@@ -15,38 +15,7 @@ import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { useToast } from "@/components/ui/use-toast"
 // Import Zustand store
 import { useDashboardStore } from "@/stores/dashboardStore"
-import { dashboardApi } from "@/lib/api"
 import type { DateRange } from "react-day-picker"
-
-// Define types for the analytics data
-interface SalesAnalytics {
-  top_sellers: Array<{
-    id?: string;
-    name: string;
-    category?: string;
-    revenue: number;
-  }>;
-  turnover_rate: number;
-  monthly_sales: Array<{ month: string; revenue: number }>;
-  active_orders: number;
-}
-
-interface InventoryData {
-  items: Array<{
-    sku: string;
-    name: string;
-    on_hand: number;
-    reorder_point: number;
-    badge?: string;
-    color: string;
-    sales_trend: number[];
-    days_of_stock: number;
-  }>;
-  total: number;
-  page: number;
-  limit: number;
-  pages: number;
-}
 
 export default function Dashboard() {
   const { toast } = useToast();
@@ -302,27 +271,3 @@ export default function Dashboard() {
     </div>
   );
 }
-
-// Fallback data in case API is unavailable
-const topProducts = [
-  {
-    name: "Smart Inventory Manager",
-    category: "Software",
-    revenue: 45600,
-  },
-  {
-    name: "Supply Chain Optimizer",
-    category: "Software",
-    revenue: 32400,
-  },
-  {
-    name: "AI Sales Assistant",
-    category: "Service",
-    revenue: 28900,
-  },
-  {
-    name: "Customer Insights Pro",
-    category: "Analytics",
-    revenue: 24500,
-  },
-]

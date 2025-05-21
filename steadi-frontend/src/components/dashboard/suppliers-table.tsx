@@ -80,7 +80,6 @@ export function SuppliersTable() {
   const [editDialogOpen, setEditDialogOpen] = React.useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
   const [selectedSupplier, setSelectedSupplier] = React.useState<Supplier | null>(null)
-  const [viewDetailsDialogOpen, setViewDetailsDialogOpen] = React.useState(false)
 
   const fetchSuppliers = React.useCallback(async () => {
     try {
@@ -268,7 +267,6 @@ export function SuppliersTable() {
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => {
                 setSelectedSupplier(supplier)
-                setViewDetailsDialogOpen(true)
               }}>
                 View supplier details
               </DropdownMenuItem>

@@ -21,7 +21,6 @@ export function DashboardHeader() {
   const navigate = useNavigate();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [organizationId, setOrganizationId] = useState("");
-  const [copied, setCopied] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -35,8 +34,6 @@ export function DashboardHeader() {
   const copyOrgIdToClipboard = () => {
     if (organizationId) {
       navigator.clipboard.writeText(organizationId);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
       
       toast({
         title: "Copied to clipboard",

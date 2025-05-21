@@ -1,4 +1,4 @@
-import { Routes, Route, useNavigate } from 'react-router-dom'
+import { Routes, Route } from 'react-router-dom'
 import './index.css'
 import { AuthProvider } from './lib/AuthContext'
 import { AuthCallback } from './components/auth/AuthCallback'

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
 import { Shield, Users, Building } from "lucide-react"
-import { useAuth, UserRole } from "@/lib/AuthContext"
+import { UserRole } from "@/lib/AuthContext"
 import { supabase } from "@/lib/supabase"
 
 const RoleCard = ({ 
@@ -52,7 +52,6 @@ export default function RoleSelectionPage() {
   const { toast } = useToast()
   const [selectedRole, setSelectedRole] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const { user } = useAuth()
 
   const handleContinue = async () => {
     if (!selectedRole) {

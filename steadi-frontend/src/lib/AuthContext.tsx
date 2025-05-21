@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
-import type { Session, User, AuthError, Provider } from '@supabase/supabase-js';
+import type { Session, User, AuthError } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 
 // Base URL for API calls
@@ -52,7 +52,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [status, setStatus] = useState<AuthStatus>('LOADING');
-  const [userRole, setUserRole] = useState<UserRoleType | null>(null);
 
   // Check if rules setup is required
   const isRulesSetupRequired = () => {
@@ -68,12 +67,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       
       // Check if user needs to complete rules setup
       if (session) {
-        // Try to get role from localStorage
-        const storedRole = localStorage.getItem('user_role');
-        if (storedRole) {
-          setUserRole(storedRole as UserRoleType);
-        }
-        
         if (isRulesSetupRequired()) {
           setStatus('RULES_SETUP_REQUIRED');
         } else {
@@ -93,7 +86,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         
         // Handle special cases for email verification
         if (event === 'SIGNED_IN') {
-          // Check if user needs to complete rules setup
           if (isRulesSetupRequired()) {
             setStatus('RULES_SETUP_REQUIRED');
           } else {
@@ -101,10 +93,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         } else if (event === 'SIGNED_OUT') {
           setStatus('UNAUTHENTICATED');
-          setUserRole(null);
         } else if (event === 'USER_UPDATED') {
           if (session) {
-            // Check if user needs to complete rules setup
             if (isRulesSetupRequired()) {
               setStatus('RULES_SETUP_REQUIRED');
             } else {
@@ -174,7 +164,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const data = await response.json();
         if (data.role) {
           localStorage.setItem('user_role', data.role);
-          setUserRole(data.role as UserRoleType);
         }
       } else {
         console.error('Failed to sync user with backend');
@@ -187,7 +176,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signUp = async (email: string, password: string, role: UserRoleType = UserRole.STAFF) => {
     // Save role in localStorage for later use
     localStorage.setItem('user_role', role);
-    setUserRole(role);
     
     const response = await supabase.auth.signUp({
       email,
@@ -259,7 +247,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStatus('UNAUTHENTICATED');
       setSession(null);
       setUser(null);
-      setUserRole(null);
       
       // Clear any cached sync status and local storage items
       localStorage.removeItem('supabase_sync_status');
@@ -277,7 +264,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStatus('UNAUTHENTICATED');
       setSession(null);
       setUser(null);
-      setUserRole(null);
     }
   };
   

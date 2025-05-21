@@ -7,9 +7,7 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
 } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
 import { ProductForm } from "./product-form"
 import type { ProductFormValues } from "./product-form"
 import { Loader2 } from "lucide-react"

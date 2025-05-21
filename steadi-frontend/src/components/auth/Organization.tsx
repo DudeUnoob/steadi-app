@@ -10,7 +10,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
 import { useToast } from "@/components/ui/use-toast"
-import { ArrowLeft, Building2, Copy } from "lucide-react"
+import { ArrowLeft, Building2 } from "lucide-react"
 import { supabase } from "../../lib/supabase"
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -71,9 +71,6 @@ export default function OrganizationPage() {
                 const errorData = await response.json();
                 throw new Error(errorData.detail || "Invalid organization code");
             }
-            
-            // Get user data
-            const userData = await response.json();
             
             // Store the organization ID in localStorage
             const orgId = data.orgCode;

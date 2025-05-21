@@ -6,28 +6,24 @@ import {
   type ColumnFiltersState,
   type SortingState,
   type VisibilityState,
-  flexRender,
   getCoreRowModel,
   getFilteredRowModel,
   getPaginationRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table"
-import { ArrowUpDown, ChevronDown, MoreHorizontal, Loader2, Plus } from "lucide-react"
+import { ArrowUpDown, MoreHorizontal, Loader2 } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Input } from "@/components/ui/input"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
 import { salesApi } from "@/lib/api"
 import { useToast } from "@/components/ui/use-toast"
 import {
@@ -108,14 +104,12 @@ export function SalesTable({ productId }: SalesTableProps) {
   const [isLoading, setIsLoading] = React.useState(true)
   
   // State for dialogs
-  const [addDialogOpen, setAddDialogOpen] = React.useState(false)
-  const [editDialogOpen, setEditDialogOpen] = React.useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false)
   const [selectedSale, setSelectedSale] = React.useState<Sale | null>(null)
 
   const { salesData, isSalesLoading, salesError, fetchSalesData } = useDashboardStore()
   const [currentPage, setCurrentPage] = React.useState(1)
-  const [itemsPerPage, setItemsPerPage] = React.useState(10)
+  const [itemsPerPage] = React.useState(10)
   
   const fetchSales = React.useCallback(async () => {
     try {
@@ -317,7 +311,8 @@ export function SalesTable({ productId }: SalesTableProps) {
     },
   ]
 
-  const table = useReactTable({
+  // Table configuration is defined but not used in this version of the component
+  useReactTable({
     data: sales,
     columns,
     onSortingChange: setSorting,
