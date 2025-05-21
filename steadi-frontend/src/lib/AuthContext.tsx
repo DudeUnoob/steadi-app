@@ -143,6 +143,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const signInWithGoogle = async () => {
+    // Clear any previous flags to ensure fresh state for Google auth
+    localStorage.removeItem('rules_setup_required');
+    localStorage.removeItem('rules_setup_completed');
+    localStorage.removeItem('org_code_required');
+    
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
@@ -201,9 +206,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (needsEmailVerification) {
       setStatus('EMAIL_VERIFICATION_NEEDED');
     } else if (response.data.session) {
-      // Automatically set rules setup required for new users
-      localStorage.setItem('rules_setup_required', 'true');
-      setStatus('RULES_SETUP_REQUIRED');
+      // Set appropriate flags based on user role
+      if (role === UserRole.OWNER) {
+        // Owner needs to set up rules
+        localStorage.setItem('rules_setup_required', 'true');
+        localStorage.setItem('rules_setup_completed', 'false');
+        setStatus('RULES_SETUP_REQUIRED');
+      } else {
+        // Staff and Manager should provide organization code instead
+        localStorage.setItem('rules_setup_required', 'false');
+        localStorage.setItem('org_code_required', 'true');
+        setStatus('AUTHENTICATED'); // Will be redirected to org code page by router
+      }
       
       // Sync with backend, passing the role
       await syncWithBackend(response.data.session.access_token, role);

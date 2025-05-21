@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { supabase } from '../../lib/supabase';
+import { UserRole } from '@/lib/AuthContext';
 
 export function AuthCallback() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [redirectPath, setRedirectPath] = useState<string>('/dashboard');
   const location = useLocation();
 
   useEffect(() => {
@@ -13,28 +15,59 @@ export function AuthCallback() {
       try {
         setLoading(true);
         
-       
         const isPasswordReset = location.hash.includes('type=recovery');
         
         if (isPasswordReset) {
-         
           const accessToken = new URLSearchParams(location.hash.substring(1)).get('access_token');
           if (!accessToken) {
             throw new Error('No access token found in URL');
           }
           
           localStorage.setItem('sb-recovery-token', accessToken);
-          
-         
+          setRedirectPath('/auth/reset-password');
         } else {
-         
-          const { error } = await supabase.auth.getSession();
+          // Get the session and user data
+          const { data, error } = await supabase.auth.getSession();
           if (error) {
             throw error;
           }
           
-          // Mark that user needs to complete rules setup
-          localStorage.setItem('rules_setup_required', 'true');
+          if (data.session) {
+            // Get user metadata to determine the role
+            const { data: userData } = await supabase.auth.getUser();
+            
+            // Check if this appears to be a new OAuth user (no role in metadata)
+            const isOAuthUser = userData?.user?.app_metadata?.provider === 'google';
+            const hasRole = !!userData?.user?.user_metadata?.role;
+            
+            if (isOAuthUser && !hasRole) {
+              // New OAuth user without a role, redirect to role selection
+              console.log('New OAuth user detected, redirecting to role selection');
+              // Clear organization ID for new users to ensure they go through the proper flow
+              localStorage.removeItem('organization_id');
+              setRedirectPath('/auth/role-selection');
+            } else {
+              // Existing user or user with role already set
+              const role = userData?.user?.user_metadata?.role || 'staff';
+              
+              // Store the role for later use
+              localStorage.setItem('user_role', role);
+              
+              // Set appropriate flags and redirect based on role
+              if (role === UserRole.OWNER) {
+                // Owner needs to set up rules
+                localStorage.setItem('rules_setup_required', 'true');
+                localStorage.setItem('rules_setup_completed', 'false');
+                localStorage.setItem('org_code_required', 'false');
+                setRedirectPath('/auth/rules');
+              } else {
+                // Staff and Manager need to enter organization code
+                localStorage.setItem('rules_setup_required', 'false');
+                localStorage.setItem('org_code_required', 'true');
+                setRedirectPath('/auth/organization');
+              }
+            }
+          }
         }
         
         setLoading(false);
@@ -79,10 +112,5 @@ export function AuthCallback() {
   }
 
  
-  if (location.hash.includes('type=recovery')) {
-    return <Navigate to="/auth/reset-password" replace />;
-  }
-
- 
-  return <Navigate to="/auth/rules" replace />;
+  return <Navigate to={redirectPath} replace />;
 } 

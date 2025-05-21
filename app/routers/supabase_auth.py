@@ -7,6 +7,7 @@ from sqlmodel import Session, select
 from app.db.database import get_db
 from typing import Dict, Any, Optional
 from app.api.mvp.auth import create_access_token, create_refresh_token
+from app.api.mvp.rules import get_rules_by_organization_id
 import uuid
 import logging
 
@@ -296,4 +297,95 @@ async def get_local_token_from_supabase(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Could not validate credentials"
+        )
+
+@router.post("/join-organization", response_model=UserRead)
+async def join_organization(
+    request: Request,
+    data: Dict[str, Any] = Body(...),
+    db: Session = Depends(get_db)
+):
+    """Join an existing organization using an organization code"""
+    try:
+        # Get the current user from Supabase token
+        supabase_user = await get_current_supabase_user(request)
+        
+        if not supabase_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required"
+            )
+        
+        # Get organization ID from request body
+        organization_id = data.get("organization_id")
+        if not organization_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Organization ID is required"
+            )
+        
+        # Validate organization ID format
+        try:
+            organization_id = int(organization_id)
+            if organization_id < 100000 or organization_id > 999999:
+                raise ValueError("Invalid organization ID format")
+        except (ValueError, TypeError):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Organization ID must be a 6-digit number"
+            )
+        
+        # Check if organization exists
+        rules = get_rules_by_organization_id(db, organization_id)
+        
+        if not rules:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Organization not found"
+            )
+        
+        # Find the user in our database
+        supabase_id = supabase_user.get("id")
+        user = db.exec(select(User).where(User.supabase_id == supabase_id)).first()
+        
+        if not user:
+            # Try to find by email
+            email = supabase_user.get("email")
+            user = db.exec(select(User).where(User.email == email)).first()
+            
+            if not user:
+                # Create a new user
+                user_metadata = supabase_user.get("user_metadata", {})
+                role_str = user_metadata.get("role", "staff")
+                role = convert_role_to_enum(role_str) or UserRole.STAFF
+                
+                user = User(
+                    email=supabase_user.get("email"),
+                    supabase_id=supabase_id,
+                    password_hash=SUPABASE_USER_PASSWORD_PLACEHOLDER,
+                    role=role,
+                    organization_id=organization_id,
+                    id=uuid.uuid4()
+                )
+                db.add(user)
+            else:
+                # Update existing user with Supabase ID
+                user.supabase_id = supabase_id
+        
+        # Update user's organization ID
+        user.organization_id = organization_id
+        
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        
+        logger.info(f"User {user.email} joined organization {organization_id}")
+        return user
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error joining organization: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error joining organization: {str(e)}"
         )

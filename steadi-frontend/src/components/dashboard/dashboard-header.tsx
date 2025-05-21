@@ -1,10 +1,10 @@
 import {Link, useNavigate} from "react-router-dom"
 import { ModeToggle } from "@/components/dashboard/mode-toggle"
 import { Button } from "@/components/ui/button"
-import { Bell, HelpCircle, LogOut, Search, Loader2 } from "lucide-react"
+import { Bell, Building, Copy, HelpCircle, LogOut, Search, Loader2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/lib/AuthContext"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useToast } from "@/components/ui/use-toast"
 import { 
   Tooltip,
@@ -12,12 +12,38 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import {
+  Badge
+} from "@/components/ui/badge"
 
 export function DashboardHeader() {
   const { signOut } = useAuth();
   const navigate = useNavigate();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [organizationId, setOrganizationId] = useState("");
+  const [copied, setCopied] = useState(false);
   const { toast } = useToast();
+
+  useEffect(() => {
+    // Get organization ID from localStorage
+    const orgId = localStorage.getItem('organization_id');
+    if (orgId) {
+      setOrganizationId(orgId);
+    }
+  }, []);
+
+  const copyOrgIdToClipboard = () => {
+    if (organizationId) {
+      navigator.clipboard.writeText(organizationId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      
+      toast({
+        title: "Copied to clipboard",
+        description: `Organization ID ${organizationId} copied to clipboard.`,
+      });
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -85,6 +111,27 @@ export function DashboardHeader() {
           </nav>
         </div>
         <div className="flex items-center gap-4">
+          {organizationId && (
+            <TooltipProvider>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <div 
+                    className="flex items-center gap-1 cursor-pointer px-2 py-1 rounded-md hover:bg-muted/70"
+                    onClick={copyOrgIdToClipboard}
+                  >
+                    <Building className="h-4 w-4 text-steadi-pink" />
+                    <Badge variant="outline" className="bg-muted/50 hover:bg-muted/70 cursor-pointer">
+                      Org ID: {organizationId}
+                    </Badge>
+                    <Copy className="h-3 w-3 text-muted-foreground" />
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent>
+                  <p>Click to copy organization ID</p>
+                </TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+          )}
           <div className="relative hidden md:block">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
