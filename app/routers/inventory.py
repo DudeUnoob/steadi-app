@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from typing import Optional, List
 from uuid import UUID, uuid4
+from datetime import datetime
 import logging
 
 from app.services.inventory_service import update_inventory, get_inventory, get_ledger
@@ -9,7 +10,7 @@ from app.models.data_models.Product import Product
 from app.models.data_models.Supplier import Supplier
 from app.db.database import get_db
 from sqlmodel import Session, select
-from app.api.mvp.auth import get_current_user
+from app.api.mvp.auth import get_current_user, check_org_membership_and_permissions
 from app.api.auth.supabase import get_current_supabase_user
 from app.models.data_models.User import User
 from app.models.enums.UserRole import UserRole
@@ -55,6 +56,29 @@ async def get_authenticated_user(
     except Exception as e:
         logger.error(f"Authentication error: {str(e)}")
         raise HTTPException(status_code=401, detail="Not authenticated")
+
+# Helper function for organization permissions
+def get_org_user_with_permissions(operation_type: str):
+    """
+    Create a dependency function that checks organization membership and permissions.
+    This avoids the need for lambdas with request parameter references.
+    
+    Args:
+        operation_type: The operation type to check permissions for (e.g. "view_products")
+        
+    Returns:
+        A dependency function that gets the user with verified permissions
+    """
+    def dependency(
+        db: Session = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+    ) -> User:
+        return check_org_membership_and_permissions(
+            current_user=current_user,
+            operation_type=operation_type,
+            db=db
+        )
+    return dependency
 
 # Combined authentication for manager operations
 async def get_authenticated_manager(
@@ -123,27 +147,58 @@ async def read_inventory(
     search: Optional[str] = None, 
     page: int = 1, 
     limit: int = 50,
-    current_user: User = Depends(get_authenticated_user)
+    session: Session = Depends(get_db),
+    current_user: User = Depends(get_org_user_with_permissions("view_products"))
 ):
-    """Get paginated inventory with optional search"""
-    return get_inventory(search, page, limit, user_id=current_user.id)
+    """Get paginated inventory with optional search by organization"""
+    # Get all products for the user's organization instead of just the user
+    if not current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User is not associated with an organization"
+        )
+    
+    # Get all users in the organization to find their products
+    users_in_org = session.exec(
+        select(User).where(User.organization_id == current_user.organization_id)
+    ).all()
+    
+    user_ids = [user.id for user in users_in_org]
+    logger.info(f"Fetching inventory for organization {current_user.organization_id} with {len(user_ids)} users")
+    
+    return get_inventory(search, page, limit, user_ids=user_ids)
 
 @router.get('/inventory/{sku}', response_model=ProductOut)
 async def read_product(
     request: Request,
     sku: str, 
     session: Session = Depends(get_db),
-    current_user: User = Depends(get_authenticated_user)
+    current_user: User = Depends(get_org_user_with_permissions("view_products"))
 ):
-    """Get a specific product by SKU"""
+    """Get a specific product by SKU within organization"""
+    if not current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User is not associated with an organization"
+        )
+    
+    # Get all users in the organization
+    users_in_org = session.exec(
+        select(User).where(User.organization_id == current_user.organization_id)
+    ).all()
+    
+    user_ids = [user.id for user in users_in_org]
+    
+    # Find product belonging to any user in the organization
     statement = select(Product).where(
         (Product.sku == sku) & 
-        (Product.user_id == current_user.id)
+        (Product.user_id.in_(user_ids))
     )
     result = session.exec(statement)
     product = result.first()
+    
     if product is None:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Product not found in your organization")
     return product
 
 @router.patch('/inventory/{sku}', response_model=ProductOut)
@@ -152,17 +207,32 @@ async def update_product(
     sku: str, 
     product_update: ProductUpdate, 
     session: Session = Depends(get_db),
-    current_user: User = Depends(get_authenticated_manager)
+    current_user: User = Depends(get_org_user_with_permissions("edit_products"))
 ):
-    """Update product inventory details"""
+    """Update product inventory details within organization"""
+    if not current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User is not associated with an organization"
+        )
+    
+    # Get all users in the organization
+    users_in_org = session.exec(
+        select(User).where(User.organization_id == current_user.organization_id)
+    ).all()
+    
+    user_ids = [user.id for user in users_in_org]
+    
+    # Find product belonging to any user in the organization
     statement = select(Product).where(
         (Product.sku == sku) & 
-        (Product.user_id == current_user.id)
+        (Product.user_id.in_(user_ids))
     )
     result = session.exec(statement)
     db_product = result.first()
+    
     if db_product is None:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Product not found in your organization")
     
     update_data = product_update.dict(exclude_unset=True)
     for key, value in update_data.items():
@@ -181,7 +251,7 @@ async def adjust_inventory(
     quantity_delta: int, 
     source: str = 'manual', 
     reference_id: Optional[str] = None,
-    current_user: User = Depends(get_authenticated_manager)
+    current_user: User = Depends(get_org_user_with_permissions("edit_products"))
 ):
     """Adjust inventory quantity with audit trail"""
     try:
@@ -198,15 +268,38 @@ async def adjust_inventory(
 @router.get('/inventory/ledger/{product_id}', response_model=List[InventoryLedgerOut])
 async def read_ledger(
     request: Request,
-    product_id: UUID, 
+    product_id: UUID,
     start_date: Optional[str] = None, 
     end_date: Optional[str] = None,
-    current_user: User = Depends(get_authenticated_user)
+    session: Session = Depends(get_db),
+    current_user: User = Depends(get_org_user_with_permissions("view_products"))
 ):
-    """Get inventory audit trail for a product"""
-    from datetime import datetime
-    start = datetime.fromisoformat(start_date) if start_date else None
-    end = datetime.fromisoformat(end_date) if end_date else None
+    """Get inventory ledger history for a product within the organization"""
+    if not current_user.organization_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User is not associated with an organization"
+        )
     
-    # Only return ledger entries for products owned by the current user
-    return get_ledger(product_id, start, end, user_id=current_user.id) 
+    # Get all users in the organization
+    users_in_org = session.exec(
+        select(User).where(User.organization_id == current_user.organization_id)
+    ).all()
+    
+    user_ids = [user.id for user in users_in_org]
+    logger.info(f"Fetching ledger for product {product_id} for organization {current_user.organization_id}")
+    
+    start_datetime = None
+    if start_date:
+        start_datetime = datetime.fromisoformat(start_date)
+    
+    end_datetime = None
+    if end_date:
+        end_datetime = datetime.fromisoformat(end_date)
+    
+    return get_ledger(
+        product_id=product_id,
+        start_date=start_datetime,
+        end_date=end_datetime,
+        user_ids=user_ids
+    ) 

@@ -230,12 +230,21 @@ export default function RulesPage() {
             setIsLoading(true);
             
             try {
+                // Check if organization ID is stored in localStorage
+                const storedOrgId = localStorage.getItem('organization_id');
+                if (storedOrgId) {
+                    setOrganizationId(storedOrgId);
+                }
+                
                 const response = await fetchWithAuth(`${API_URL}/rules/me`);
                 const data = await response.json();
                 
                 // Set organization ID if available
                 if (data.organization_id) {
-                    setOrganizationId(data.organization_id.toString());
+                    const orgId = data.organization_id.toString();
+                    setOrganizationId(orgId);
+                    // Store the organization ID in localStorage
+                    localStorage.setItem('organization_id', orgId);
                 }
                 
                 // Update permission states
@@ -565,7 +574,10 @@ export default function RulesPage() {
             // Extract and set the organization ID. The response now includes organization_id at the top level.
             const responseData = await response.json();
             if (responseData.organization_id && (!organizationId || organizationId.trim() === '')) {
-                setOrganizationId(responseData.organization_id.toString());
+                const orgId = responseData.organization_id.toString();
+                setOrganizationId(orgId);
+                // Store the organization ID in localStorage for persistence across the setup flow
+                localStorage.setItem('organization_id', orgId);
             }
 
             // Mark rules setup as completed
@@ -574,14 +586,14 @@ export default function RulesPage() {
 
             toast({
                 title: "Permissions saved",
-                description: "Role permissions have been successfully configured.",
+                description: `Role permissions have been successfully configured. Your organization ID is ${responseData.organization_id}.`,
             });
 
             // Small delay to show the generated organization ID before navigating
             if (!organizationId || organizationId.trim() === '') {
                 setTimeout(() => {
                     navigate("/dashboard");
-                }, 1500);
+                }, 3000); // Increased delay to 3 seconds to ensure user sees the organization ID
             } else {
                 navigate("/dashboard");
             }

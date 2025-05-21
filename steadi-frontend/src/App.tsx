@@ -9,6 +9,8 @@ import { VerifyEmail } from './components/auth/VerifyEmail'
 import Dashboard from './components/dashboard/dashboard'
 import { NewAuthPage } from './components/auth/Page'
 import RulesPage from './components/auth/Rules'
+import OrganizationPage from './components/auth/Organization'
+import RoleSelectionPage from './components/auth/RoleSelection'
 import { Toaster } from './components/ui/toaster'
 // Import landing page components
 import { LandingCta } from './components/landing/landing-cta'
@@ -44,9 +46,15 @@ function App() {
         <Route path="/auth/callback" element={<AuthCallback />} />
         <Route path="/auth/reset-password" element={<ResetPassword />} />
         <Route path="/auth/verify-email" element={<VerifyEmail />} />
+        <Route path="/auth/role-selection" element={<RoleSelectionPage />} />
         <Route path="/auth/rules" element={
           <ProtectedRoute requireRulesCompleted={false}>
             <RulesPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/auth/organization" element={
+          <ProtectedRoute requireOrgCode={true}>
+            <OrganizationPage />
           </ProtectedRoute>
         } />
         

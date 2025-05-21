@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
@@ -9,8 +9,11 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { toast } from "@/components/ui/use-toast"
+import { useToast } from "@/components/ui/use-toast"
 import { ArrowLeft, Building2, Copy } from "lucide-react"
+import { supabase } from "../../lib/supabase"
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const orgFormSchema = z.object({
     orgCode: z.string().min(6, { message: "Organization code must be at least 6 characters" }),
@@ -20,7 +23,9 @@ type OrgFormValues = z.infer<typeof orgFormSchema>
 
 export default function OrganizationPage() {
     const navigate = useNavigate()
+    const { toast } = useToast()
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const [savedOrgId, setSavedOrgId] = useState<string | null>(null)
 
     const form = useForm<OrgFormValues>({
         resolver: zodResolver(orgFormSchema),
@@ -29,37 +34,69 @@ export default function OrganizationPage() {
         },
     })
 
+    // Check for organization ID in localStorage when component mounts
+    useEffect(() => {
+        const orgId = localStorage.getItem('organization_id');
+        if (orgId) {
+            setSavedOrgId(orgId);
+            // Automatically fill the form with the saved organization ID
+            form.setValue('orgCode', orgId);
+        }
+    }, [form]);
+
     async function onSubmit(data: OrgFormValues) {
         setIsSubmitting(true)
 
         try {
-            // Simulate API call
-            await new Promise((resolve) => setTimeout(resolve, 1500))
-
-            // Simulate validation
-            if (data.orgCode !== "DEMO123") {
-                form.setError("orgCode", {
-                    type: "manual",
-                    message: "Invalid organization code",
-                })
-                setIsSubmitting(false)
-                return
+            // Get the current user's session
+            const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+            
+            if (sessionError || !sessionData.session) {
+                throw new Error("Authentication session expired. Please log in again.");
             }
-
+            
+            // Validate the organization code with backend
+            const response = await fetch(`${API_URL}/supabase-auth/join-organization`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${sessionData.session.access_token}`
+                },
+                body: JSON.stringify({
+                    organization_id: parseInt(data.orgCode, 10)
+                })
+            });
+            
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || "Invalid organization code");
+            }
+            
+            // Get user data
+            const userData = await response.json();
+            
+            // Store the organization ID in localStorage
+            const orgId = data.orgCode;
+            localStorage.setItem('organization_id', orgId);
+            
+            // Mark organization setup as completed
+            localStorage.setItem('org_code_required', 'false');
+            
             toast({
                 title: "Organization joined",
-                description: "You have successfully joined the organization.",
-            })
+                description: `You have successfully joined organization ${orgId}.`,
+            });
 
-            navigate("/dashboard")
+            navigate("/dashboard");
         } catch (error) {
+            console.error("Error joining organization:", error);
             toast({
                 title: "Error",
-                description: "Failed to join organization. Please try again.",
+                description: error instanceof Error ? error.message : "Failed to join organization. Please try again.",
                 variant: "destructive",
-            })
+            });
         } finally {
-            setIsSubmitting(false)
+            setIsSubmitting(false);
         }
     }
 
@@ -84,6 +121,11 @@ export default function OrganizationPage() {
                     </div>
                     <h1 className="text-2xl font-bold tracking-tight">Join Organization</h1>
                     <p className="text-sm text-muted-foreground">Enter your organization code to join an existing workspace</p>
+                    {savedOrgId && (
+                        <p className="text-sm font-medium text-steadi-pink">
+                            Your organization ID: {savedOrgId}
+                        </p>
+                    )}
                 </div>
 
                 <Card className="mt-8 overflow-hidden border-0 bg-black/40 backdrop-blur-xl">
@@ -101,39 +143,16 @@ export default function OrganizationPage() {
                                         <FormItem>
                                             <FormLabel>Organization Code</FormLabel>
                                             <FormControl>
-                                                <div className="relative">
-                                                    <Input
-                                                        placeholder="Enter organization code"
-                                                        {...field}
-                                                        className="bg-muted/50 border-[#2a2a30] pr-10 font-mono"
-                                                    />
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="icon"
-                                                        className="absolute right-0 top-0 h-full px-3 py-2 text-muted-foreground"
-                                                        onClick={() => {
-                                                            navigator.clipboard.writeText(field.value)
-                                                            toast({
-                                                                title: "Copied to clipboard",
-                                                                description: "Organization code copied to clipboard",
-                                                            })
-                                                        }}
-                                                    >
-                                                        <Copy className="h-4 w-4" />
-                                                        <span className="sr-only">Copy code</span>
-                                                    </Button>
-                                                </div>
+                                                <Input
+                                                    placeholder="Enter 6-digit organization code"
+                                                    {...field}
+                                                    className="bg-muted/50 border-[#2a2a30] font-mono"
+                                                />
                                             </FormControl>
                                             <FormMessage />
                                         </FormItem>
                                     )}
                                 />
-
-                                <div className="rounded-md bg-muted/30 p-3 text-sm">
-                                    <p className="font-medium text-steadi-pink">Demo Code: DEMO123</p>
-                                    <p className="mt-1 text-xs text-muted-foreground">Use this code for testing purposes</p>
-                                </div>
 
                                 <div className="flex justify-between">
                                     <Button

@@ -9,6 +9,7 @@ from app.db.database import get_db
 from app.models.data_models.User import User
 from app.models.enums.UserRole import UserRole
 from app.api.auth.supabase import get_token_from_header
+from app.api.mvp.rules import get_rules_by_organization_id
 
 import os
 import logging
@@ -177,4 +178,84 @@ def get_manager_user_from_supabase(request: Request):
     user = get_current_user_from_supabase(request)
     if user:
         return get_manager_user(user)
-    return None 
+    return None
+
+def check_org_membership_and_permissions(
+    current_user: User = Depends(get_current_user),
+    operation_type: str = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Unified permission check that validates:
+    1. User has a valid organization_id
+    2. User has appropriate role-based permissions for the requested operation
+    
+    operation_type: One of 'view_products', 'edit_products', 'view_suppliers',
+                   'edit_suppliers', 'view_sales', 'edit_sales'
+    """
+    if not current_user:
+        logger.error("check_org_membership_and_permissions: No current user")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    logger.info(f"Checking permissions for user {current_user.email} (ID: {current_user.id}) - Role: {current_user.role.value}, Organization ID: {current_user.organization_id}, Operation: {operation_type}")
+    
+    # Check organization membership
+    if current_user.organization_id is None:
+        logger.error(f"User {current_user.email} does not belong to any organization")
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User does not belong to any organization"
+        )
+    
+    # Owner has all permissions by default
+    if current_user.role == UserRole.OWNER:
+        logger.info(f"User {current_user.email} is OWNER - all permissions granted")
+        return current_user
+    
+    # For staff and manager roles, we need to check rules
+    if operation_type:
+        rules = get_rules_by_organization_id(db, current_user.organization_id)
+        
+        if not rules:
+            logger.warning(f"No rules found for organization {current_user.organization_id}")
+            # Create default rules if none exist
+            from app.api.mvp.rules import get_default_rules, create_rules
+            default_rules = get_default_rules(current_user.role)
+            logger.info(f"Creating default rules for organization {current_user.organization_id}")
+            rules = create_rules(db, current_user.organization_id, default_rules)
+            db.commit()
+            db.refresh(rules)
+        
+        # Convert the role value to lowercase to match the Rules model's field naming
+        role_prefix = current_user.role.value.lower()
+        permission_attr = f"{role_prefix}_{operation_type}"
+        
+        logger.info(f"Checking permission attribute: {permission_attr}")
+        
+        # Check if the attribute exists in the rules model
+        if hasattr(rules, permission_attr):
+            has_permission = getattr(rules, permission_attr)
+            logger.info(f"Permission check for {permission_attr}: {has_permission}")
+            
+            if not has_permission:
+                logger.error(f"User {current_user.email} does not have permission for {operation_type}")
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, 
+                    detail=f"User does not have permission for {operation_type}"
+                )
+        else:
+            logger.error(f"Permission '{permission_attr}' not defined in rules model")
+            # Log the available attributes in the rules model
+            rules_attrs = [attr for attr in dir(rules) if not attr.startswith('_')]
+            logger.error(f"Available attributes in rules model: {rules_attrs}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Invalid permission check"
+            )
+    
+    logger.info(f"Permission check passed for user {current_user.email}")
+    return current_user 
