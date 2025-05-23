@@ -7,6 +7,7 @@ import { SyncBackend } from './components/auth/SyncBackend'
 import { ResetPassword } from './components/auth/ResetPassword'
 import { VerifyEmail } from './components/auth/VerifyEmail'
 import Dashboard from './components/dashboard/dashboard'
+import { ConnectorsDashboard } from './components/connectors/connectors-dashboard'
 import { NewAuthPage } from './components/auth/Page'
 import RulesPage from './components/auth/Rules'
 import OrganizationPage from './components/auth/Organization'
@@ -62,6 +63,11 @@ function App() {
         <Route path="/dashboard" element={
           <ProtectedRoute>
             <Dashboard />
+          </ProtectedRoute>
+        } />
+        <Route path="/connectors" element={
+          <ProtectedRoute>
+            <ConnectorsDashboard />
           </ProtectedRoute>
         } />
         {/* Add other protected routes here */}

@@ -9,6 +9,7 @@ if TYPE_CHECKING:
 
 class PurchaseOrderItem(SQLModel, table=True):
     """Line item in a purchase order"""
+    
     id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
     po_id: UUID = Field(foreign_key="purchaseorder.id")
     product_id: UUID = Field(foreign_key="product.id")

@@ -7,10 +7,13 @@ from pydantic import validator
 
 if TYPE_CHECKING:
     from app.models.data_models.Notification import Notification
+    from app.models.data_models.Alert import Alert
+    from app.models.data_models.AuditLog import AuditLog
     # from app.models.data_models.Rules import Rules # Import no longer needed for a direct relationship here
 
 class User(SQLModel, table=True):
     """User account with authentication and authorization"""
+    
     id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
     email: str = Field(unique=True, index=True)
     password_hash: Optional[str] = None
@@ -18,8 +21,18 @@ class User(SQLModel, table=True):
     role: UserRole = Field(default=UserRole.STAFF)
     organization_id: Optional[int] = Field(default=None, nullable=True)
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    
     # Relationships
     notifications: List["Notification"] = Relationship(back_populates="user", sa_relationship_kwargs={"lazy": "selectin"})
+    audit_logs: List["AuditLog"] = Relationship(back_populates="user")
+    created_alerts: List["Alert"] = Relationship(
+        back_populates="creator",
+        sa_relationship_kwargs={"foreign_keys": "[Alert.created_by]"}
+    )
+    resolved_alerts: List["Alert"] = Relationship(
+        back_populates="resolver",
+        sa_relationship_kwargs={"foreign_keys": "[Alert.resolved_by]"}
+    )
     # rules: Optional["Rules"] = Relationship(back_populates="user", sa_relationship_kwargs={"uselist": False}) # Removed
 
     @validator('organization_id')
@@ -33,4 +46,4 @@ class User(SQLModel, table=True):
         json_encoders = {
             UUID: lambda v: str(v),
             UserRole: lambda v: v.value
-        }
+        } 

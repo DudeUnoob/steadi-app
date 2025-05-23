@@ -6,9 +6,11 @@ from uuid import UUID, uuid4
 if TYPE_CHECKING:
     from app.models.data_models.Product import Product
     from app.models.data_models.PurchaseOrder import PurchaseOrder
+    from app.models.data_models.Alert import Alert
 
 class Supplier(SQLModel, table=True):
     """Supplier or vendor information"""
+    
     id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
     name: str = Field(index=True)
     contact_email: str
@@ -18,6 +20,7 @@ class Supplier(SQLModel, table=True):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     user_id: UUID = Field(foreign_key="user.id")
     
+    # Relationships
     products: List["Product"] = Relationship(back_populates="supplier")
     purchase_orders: List["PurchaseOrder"] = Relationship(back_populates="supplier")
-
+    alerts: List["Alert"] = Relationship(back_populates="supplier") 

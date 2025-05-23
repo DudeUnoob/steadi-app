@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 class PurchaseOrder(SQLModel, table=True):
     """Order to suppliers for inventory replenishment"""
+    
     id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
     supplier_id: UUID = Field(foreign_key="supplier.id", index=True)
     status: POStatus = Field(default=POStatus.DRAFT, index=True)
