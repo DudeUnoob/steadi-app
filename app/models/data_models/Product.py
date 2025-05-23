@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from app.models.data_models.Sale import Sale
     from app.models.data_models.PurchaseOrderItem import PurchaseOrderItem
     from app.models.data_models.SkuAlias import SkuAlias
+    from app.models.data_models.Alert import Alert
 
 class Product(SQLModel, table=True):
     """Inventory item with stock levels and thresholds"""
@@ -27,11 +28,10 @@ class Product(SQLModel, table=True):
     alert_level: Optional[AlertLevel] = None
     user_id: UUID = Field(foreign_key="user.id")
     
-    
+    # Relationships
     supplier: Optional["Supplier"] = Relationship(back_populates="products")
     ledger_entries: List["InventoryLedger"] = Relationship(back_populates="product")
     sales: List["Sale"] = Relationship(back_populates="product")
     purchase_order_items: List["PurchaseOrderItem"] = Relationship(back_populates="product")
-    
-    
     aliases: List["SkuAlias"] = Relationship(sa_relationship="SkuAlias")
+    alerts: List["Alert"] = Relationship(back_populates="product") 

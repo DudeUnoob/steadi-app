@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 
 class SkuAlias(SQLModel, table=True):
     """Alias or alternative SKU for a product"""
+    
     id: UUID = Field(default_factory=uuid4, primary_key=True)
     alias_sku: str = Field(index=True)
     canonical_sku: str = Field(foreign_key="product.sku")

@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 
 class InventoryLedger(SQLModel, table=True):
     """Audit trail for all inventory changes"""
+    
     id: Optional[UUID] = Field(default_factory=uuid4, primary_key=True)
     product_id: UUID = Field(foreign_key="product.id")
     quantity_delta: int

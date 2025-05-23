@@ -5,7 +5,6 @@ import datetime
 
 class Permission(SQLModel, table=True):
     """Model for defining available permissions in the system"""
-    __tablename__ = "rules"
 
     id: str = Field(primary_key=True)
     name: str = Field(...)
@@ -19,12 +18,11 @@ class Permission(SQLModel, table=True):
 
 class RolePermission(SQLModel, table=True):
     """Model for associating roles with permissions for each organization"""
-    __tablename__ = "role_permission"
 
     id: UUID = Field(primary_key=True)
     organization_id: str = Field(...)
     role: str = Field(...)  # 'owner', 'manager', 'staff'
-    permission_id: str = Field(foreign_key="rules.id")
+    permission_id: str = Field(foreign_key="permission.id")
     enabled: bool = Field(default=True)
     created_at: datetime.datetime = Field(default_factory=datetime.datetime.utcnow)
     

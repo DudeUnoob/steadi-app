@@ -67,12 +67,16 @@ def create_refresh_token(data: dict):
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """Dependency to get current user from token"""
-    logger.info(f"get_current_user: Attempting to validate token: {token[:20]}...")
+    logger.info(f"get_current_user: Attempting to validate token: {token[:20] if token else 'None'}...")
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials - token processing issue",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    
+    if not token:
+        logger.warning("get_current_user: No token provided")
+        raise credentials_exception
     
     if not SECRET_KEY or not ALGORITHM:
         logger.error("get_current_user: JWT_SECRET or ALGORITHM not configured!")
