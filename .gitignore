@@ -10,3 +10,15 @@ __pycache__/
 .pytest_cache/
 .coverage
 htmlcov/
+
+
+*.md
+*.sql
+test_shopify_integration.py
+test_pos_sync.py
+test_oauth_flow.py
+test_shopify_organization_sync.py
+migrate_connector_table.py
+migrate_organization_id.py 
+fix_connector_id_migration.py
+check_db_state.py

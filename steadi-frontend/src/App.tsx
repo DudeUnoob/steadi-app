@@ -8,6 +8,7 @@ import { ResetPassword } from './components/auth/ResetPassword'
 import { VerifyEmail } from './components/auth/VerifyEmail'
 import Dashboard from './components/dashboard/dashboard'
 import { ConnectorsDashboard } from './components/connectors/connectors-dashboard'
+import { OAuthCallback } from './components/connectors/oauth-callback'
 import { NewAuthPage } from './components/auth/Page'
 import RulesPage from './components/auth/Rules'
 import OrganizationPage from './components/auth/Organization'
@@ -56,6 +57,13 @@ function App() {
         <Route path="/auth/organization" element={
           <ProtectedRoute requireOrgCode={true}>
             <OrganizationPage />
+          </ProtectedRoute>
+        } />
+        
+        {/* POS Connector OAuth callback */}
+        <Route path="/connectors/oauth/callback" element={
+          <ProtectedRoute>
+            <OAuthCallback />
           </ProtectedRoute>
         } />
         

@@ -68,4 +68,23 @@ class ConnectorTestResponse(BaseModel):
     status: str
     connection_valid: bool
     test_data: Optional[Dict[str, Any]] = None
-    error_message: Optional[str] = None 
+    error_message: Optional[str] = None
+
+class OAuthInitRequest(BaseModel):
+    """Request model for OAuth initialization"""
+    oauth_code: str
+    shop_domain: Optional[str] = None  # Required for Shopify
+    state: Optional[str] = None  # For CSRF protection
+
+class OAuthInitResponse(BaseModel):
+    """Response model for OAuth initialization"""
+    connector_id: UUID
+    provider: ConnectorProvider
+    status: str
+    message: str
+
+class OAuthURLs(BaseModel):
+    """Response model for OAuth URLs"""
+    shopify: Optional[Dict[str, str]] = None
+    square: Optional[Dict[str, str]] = None
+    lightspeed: Optional[Dict[str, str]] = None 

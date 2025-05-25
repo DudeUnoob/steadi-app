@@ -48,6 +48,19 @@ interface CSVUploadResponse {
   warnings: string[];
 }
 
+interface OAuthInitRequest {
+  oauth_code: string;
+  shop_domain?: string;
+  state?: string;
+}
+
+interface OAuthInitResponse {
+  connector_id: string;
+  provider: string;
+  status: string;
+  message: string;
+}
+
 interface ConnectorState {
   connectors: Connector[];
   isLoading: boolean;
@@ -66,6 +79,8 @@ interface ConnectorState {
   syncConnector: (id: string) => Promise<void>;
   testConnector: (id: string) => Promise<void>;
   uploadCSV: (file: File, mapping: any) => Promise<void>;
+  getOAuthUrls: () => Promise<any>;
+  initializeOAuth: (provider: string, data: OAuthInitRequest) => Promise<OAuthInitResponse>;
   resetError: () => void;
   resetResults: () => void;
 }
@@ -234,6 +249,35 @@ const connectorApi = {
     
     return response.json();
   },
+
+  async getOAuthUrls(): Promise<any> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/connectors/oauth/urls`, {
+      headers,
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch OAuth URLs');
+    }
+    
+    return response.json();
+  },
+
+  async initializeOAuth(provider: string, data: OAuthInitRequest): Promise<OAuthInitResponse> {
+    const headers = await getAuthHeaders();
+    const response = await fetch(`${API_URL}/connectors/oauth/${provider.toLowerCase()}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(data),
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || 'Failed to initialize OAuth');
+    }
+    
+    return response.json();
+  },
 };
 
 export const useConnectorStore = create<ConnectorState>((set, get) => ({
@@ -346,6 +390,32 @@ export const useConnectorStore = create<ConnectorState>((set, get) => ({
       throw error;
     } finally {
       set({ isUploading: false });
+    }
+  },
+
+  getOAuthUrls: async () => {
+    try {
+      return await connectorApi.getOAuthUrls();
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : 'Failed to fetch OAuth URLs' });
+      throw error;
+    }
+  },
+
+  initializeOAuth: async (provider: string, data: OAuthInitRequest) => {
+    try {
+      set({ isLoading: true, error: null });
+      const result = await connectorApi.initializeOAuth(provider, data);
+      
+      // Refresh connectors list to include the new one
+      await get().fetchConnectors();
+      
+      return result;
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : 'Failed to initialize OAuth' });
+      throw error;
+    } finally {
+      set({ isLoading: false });
     }
   },
 

@@ -3,6 +3,7 @@ import io
 import aiohttp
 import logging
 import re
+import os
 from datetime import datetime
 from typing import Dict, List, Optional, Any, Set
 from uuid import UUID
@@ -33,7 +34,7 @@ class ConnectorService:
         self.db = db
     
     async def sync_shopify(self, connector_id: UUID) -> ConnectorSync:
-        """Sync inventory from Shopify using GraphQL Admin API"""
+        """Sync inventory from Shopify using Admin API"""
         connector = self.db.exec(select(Connector).where(Connector.id == connector_id)).first()
         if not connector:
             raise HTTPException(status_code=404, detail="Connector not found")
@@ -48,108 +49,154 @@ class ConnectorService:
         errors = []
         
         try:
-            # Shopify GraphQL query for inventory levels
-            query = """
-            query getInventoryLevels($first: Int!) {
-                inventoryLevels(first: $first) {
-                    edges {
-                        node {
-                            id
-                            available
-                            inventoryItem {
-                                id
-                                sku
-                                unitCost {
-                                    amount
-                                }
-                                product {
-                                    title
-                                    variants(first: 1) {
-                                        edges {
-                                            node {
-                                                title
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            """
-            
-            variables = {"first": 250}  # Shopify's max per request
+            shop_domain = connector.config.get("shop_domain") if connector.config else None
+            if not shop_domain:
+                raise ValueError("Shop domain not configured")
             
             headers = {
                 "X-Shopify-Access-Token": connector.access_token,
                 "Content-Type": "application/json"
             }
             
-            shop_domain = connector.config.get("shop_domain") if connector.config else None
-            if not shop_domain:
-                raise ValueError("Shop domain not configured")
-            
-            url = f"https://{shop_domain}/admin/api/2024-10/graphql.json"
+            # Use the latest API version (2025-01)
+            base_url = f"https://{shop_domain}/admin/api/2025-01"
             
             async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    url,
-                    json={"query": query, "variables": variables},
-                    headers=headers
-                ) as response:
+                # First, get all locations
+                locations_url = f"{base_url}/locations.json"
+                async with session.get(locations_url, headers=headers) as response:
                     if response.status != 200:
                         error_text = await response.text()
                         raise HTTPException(
                             status_code=response.status,
-                            detail=f"Shopify API error: {error_text}"
+                            detail=f"Shopify Locations API error: {error_text}"
                         )
                     
-                    data = await response.json()
+                    locations_data = await response.json()
+                    locations = locations_data.get("locations", [])
                     
-                    if "errors" in data:
-                        errors.extend([error["message"] for error in data["errors"]])
-                        raise HTTPException(status_code=400, detail="Shopify GraphQL errors")
+                    if not locations:
+                        raise ValueError("No locations found in Shopify store")
                     
-                    # Process inventory levels
-                    inventory_levels = data.get("data", {}).get("inventoryLevels", {}).get("edges", [])
+                    # Use the first location (typically the main location)
+                    primary_location_id = locations[0]["id"]
+                
+                # Get all products with their variants
+                products_url = f"{base_url}/products.json?limit=250"
+                page_info = None
+                total_products_processed = 0
+                
+                while True:
+                    url = products_url
+                    if page_info:
+                        url = f"{base_url}/products.json?limit=250&page_info={page_info}"
                     
-                    for edge in inventory_levels:
-                        node = edge["node"]
-                        inventory_item = node["inventoryItem"]
+                    logger.info(f"Fetching products from: {url}")
+                    
+                    async with session.get(url, headers=headers) as response:
+                        if response.status != 200:
+                            error_text = await response.text()
+                            raise HTTPException(
+                                status_code=response.status,
+                                detail=f"Shopify Products API error: {error_text}"
+                            )
                         
-                        sku = inventory_item.get("sku")
-                        if not sku:
-                            continue
+                        products_data = await response.json()
+                        products = products_data.get("products", [])
                         
-                        available = node.get("available", 0)
-                        product_title = inventory_item.get("product", {}).get("title", "")
-                        variant_title = ""
-                        variants = inventory_item.get("product", {}).get("variants", {}).get("edges", [])
-                        if variants:
-                            variant_title = variants[0]["node"].get("title", "")
-                        cost = 0.0
-                        unit_cost = inventory_item.get("unitCost")
-                        if unit_cost:
-                            cost = float(unit_cost.get("amount", 0))
-                                                
-                        # Update or create product
-                        result = await self._update_or_create_product(
-                            sku=sku,
-                            name=product_title,
-                            variant=variant_title if variant_title != "Default Title" else None,
-                            on_hand=available,
-                            cost=cost,
-                            source="shopify",
-                            reference_id=inventory_item.get("id"),
-                            user_id=connector.created_by
-                        )
+                        logger.info(f"Processing {len(products)} products from this page")
+                        total_products_processed += len(products)
                         
-                        items_synced += 1
-                        if result["created"]:
-                            items_created += 1
+                        # Process each product and its variants
+                        for product in products:
+                            product_title = product.get("title", "")
+                            variants = product.get("variants", [])
+                            
+                            logger.debug(f"Processing product: {product_title} with {len(variants)} variants")
+                            
+                            for variant in variants:
+                                variant_id = variant.get("id")
+                                sku = variant.get("sku")
+                                
+                                if not sku:
+                                    # Skip variants without SKU
+                                    logger.info(f"Skipping variant {variant_id} of '{product_title}' - no SKU")
+                                    continue
+                                
+                                variant_title = variant.get("title", "")
+                                price = float(variant.get("price", 0))
+                                
+                                logger.debug(f"Processing variant: {variant_title} (SKU: {sku})")
+                                
+                                # Get inventory level for this variant at the primary location
+                                inventory_item_id = variant.get("inventory_item_id")
+                                if not inventory_item_id:
+                                    logger.warning(f"No inventory_item_id for variant {variant_id} (SKU: {sku})")
+                                    continue
+                                
+                                inventory_url = f"{base_url}/inventory_levels.json?inventory_item_ids={inventory_item_id}&location_ids={primary_location_id}"
+                                
+                                async with session.get(inventory_url, headers=headers) as inv_response:
+                                    if inv_response.status == 200:
+                                        inv_data = await inv_response.json()
+                                        inventory_levels = inv_data.get("inventory_levels", [])
+                                        
+                                        available_quantity = 0
+                                        if inventory_levels:
+                                            available_quantity = inventory_levels[0].get("available", 0)
+                                        
+                                        # Build product name with variant info
+                                        full_name = product_title
+                                        if variant_title and variant_title != "Default Title":
+                                            full_name = f"{product_title} - {variant_title}"
+                                        
+                                        logger.info(f"Syncing product: {sku} - {full_name} (Qty: {available_quantity})")
+                                        
+                                        # Update or create product
+                                        result = await self._update_or_create_product(
+                                            sku=sku,
+                                            name=full_name,
+                                            variant=variant_title if variant_title != "Default Title" else None,
+                                            on_hand=available_quantity,
+                                            cost=price,  # Use price as cost estimate
+                                            source="shopify",
+                                            reference_id=str(variant_id),
+                                            user_id=connector.created_by
+                                        )
+                                        
+                                        items_synced += 1
+                                        if result["created"]:
+                                            items_created += 1
+                                            logger.info(f"Created new product: {sku}")
+                                        else:
+                                            items_updated += 1
+                                            logger.info(f"Updated existing product: {sku}")
+                                            
+                                        logger.debug(f"Processed product: {sku} - {full_name}")
+                                    else:
+                                        error_text = await inv_response.text()
+                                        logger.warning(f"Failed to get inventory for variant {variant_id} (SKU: {sku}): {error_text}")
+                        
+                        # Check for pagination using Link header
+                        link_header = response.headers.get("Link")
+                        page_info = None
+                        
+                        if link_header and "rel=\"next\"" in link_header:
+                            # Extract page_info from Link header
+                            # Format: <https://shop.myshopify.com/admin/api/2025-01/products.json?limit=250&page_info=xyz>; rel="next"
+                            import re
+                            next_match = re.search(r'<[^>]*[?&]page_info=([^&>]+)[^>]*>;\s*rel="next"', link_header)
+                            if next_match:
+                                page_info = next_match.group(1)
+                                logger.info(f"Found next page with page_info: {page_info}")
+                            else:
+                                logger.info("No valid page_info found in Link header, ending pagination")
+                                break
                         else:
-                            items_updated += 1
+                            logger.info("No next page found, ending pagination")
+                            break
+                
+                logger.info(f"Shopify sync completed. Total products processed: {total_products_processed}, Items synced: {items_synced}")
             
             # Update connector last sync time
             connector.last_sync = datetime.utcnow()
@@ -248,7 +295,7 @@ class ConnectorService:
                                     cost=cost,
                                     source="square",
                                     reference_id=catalog_object_id,
-                                    user_id=connector.user_id
+                                    user_id=connector.created_by
                                 )
                                 
                                 items_synced += 1
@@ -342,7 +389,7 @@ class ConnectorService:
                             cost=cost,
                             source="lightspeed",
                             reference_id=str(item.get("itemID", "")),
-                            user_id=connector.user_id
+                            user_id=connector.created_by
                         )
                         
                         items_synced += 1
@@ -581,10 +628,27 @@ class ConnectorService:
         return value.strip()
     
     def _get_or_create_supplier(self, supplier_name: str, user_id: Optional[UUID] = None) -> Supplier:
-        """Get existing supplier or create new one with user_id"""
-        # First check if supplier exists for this user
-        supplier = None
+        """Get existing supplier or create new one with user_id and organization_id"""
+        
+        # Get user's organization_id
+        organization_id = None
         if user_id:
+            from app.models.data_models.User import User
+            user = self.db.exec(select(User).where(User.id == user_id)).first()
+            if user:
+                organization_id = user.organization_id
+        
+        # First check if supplier exists within the organization
+        supplier = None
+        if organization_id:
+            supplier = self.db.exec(
+                select(Supplier).where(
+                    (Supplier.name == supplier_name) & 
+                    (Supplier.organization_id == organization_id)
+                )
+            ).first()
+        elif user_id:
+            # Fallback to user_id if no organization_id
             supplier = self.db.exec(
                 select(Supplier).where(
                     (Supplier.name == supplier_name) & 
@@ -605,15 +669,17 @@ class ConnectorService:
                 "contact_email": f"{supplier_name.lower().replace(' ', '').replace('.', '')}@example.com"
             }
             
-            # Set user_id if provided - THIS IS THE KEY FIX
+            # Set user_id and organization_id if provided
             if user_id:
                 supplier_data["user_id"] = user_id
+            if organization_id:
+                supplier_data["organization_id"] = organization_id
             
             supplier = Supplier(**supplier_data)
             self.db.add(supplier)
             self.db.commit()
             self.db.refresh(supplier)
-            logger.info(f"Created new supplier: {supplier_name}")
+            logger.info(f"Created new supplier: {supplier_name} for organization {organization_id}")
         
         return supplier
     
@@ -741,7 +807,8 @@ class ConnectorService:
                 error_message="Shop domain not configured"
             )
         
-        url = f"https://{shop_domain}/admin/api/2024-10/shop.json"
+        # Use the latest API version and test with shop info endpoint
+        url = f"https://{shop_domain}/admin/api/2025-01/shop.json"
         
         async with aiohttp.ClientSession() as session:
             async with session.get(url, headers=headers) as response:
@@ -754,7 +821,9 @@ class ConnectorService:
                         connection_valid=True,
                         test_data={
                             "shop_name": shop_info.get("name"),
-                            "shop_domain": shop_info.get("domain")
+                            "shop_domain": shop_info.get("domain"),
+                            "primary_location_id": shop_info.get("primary_location_id"),
+                            "currency": shop_info.get("currency")
                         }
                     )
                 else:
@@ -852,10 +921,26 @@ class ConnectorService:
         source: str = "manual",
         reference_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Update existing product or create new one with user_id"""
+        """Update existing product or create new one with user_id and organization_id"""
         
-        # Check if product exists (filter by user_id if provided)
+        # Get user's organization_id
+        organization_id = None
         if user_id:
+            from app.models.data_models.User import User
+            user = self.db.exec(select(User).where(User.id == user_id)).first()
+            if user:
+                organization_id = user.organization_id
+        
+        # Check if product exists within the organization (not just by user_id)
+        if organization_id:
+            existing_product = self.db.exec(
+                select(Product).where(
+                    (Product.sku == sku) & 
+                    (Product.organization_id == organization_id)
+                )
+            ).first()
+        elif user_id:
+            # Fallback to user_id if no organization_id
             existing_product = self.db.exec(
                 select(Product).where(
                     (Product.sku == sku) & 
@@ -877,6 +962,10 @@ class ConnectorService:
                 existing_product.variant = variant
             if supplier_id:
                 existing_product.supplier_id = supplier_id
+            
+            # Ensure organization_id is set if missing
+            if organization_id and not existing_product.organization_id:
+                existing_product.organization_id = organization_id
             
             self.db.add(existing_product)
             
@@ -905,9 +994,11 @@ class ConnectorService:
                 "supplier_id": supplier_id
             }
             
-            # Set user_id if provided - THIS IS THE KEY FIX
+            # Set user_id and organization_id if provided
             if user_id:
                 product_data["user_id"] = user_id
+            if organization_id:
+                product_data["organization_id"] = organization_id
             
             new_product = Product(**product_data)
             
@@ -926,4 +1017,285 @@ class ConnectorService:
             self.db.add(ledger_entry)
             self.db.commit()
             
-            return {"created": True, "product": new_product} 
+            return {"created": True, "product": new_product}
+    
+    async def initialize_shopify_oauth(self, shop_domain: str, oauth_code: str, user_id: UUID) -> Connector:
+        """
+        Initialize Shopify connector using OAuth code exchange.
+        This handles the initial OAuth flow after user grants permissions.
+        """
+        try:
+            # Get user's organization_id
+            from app.models.data_models.User import User
+            user = self.db.exec(select(User).where(User.id == user_id)).first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            
+            organization_id = user.organization_id
+            
+            # Shopify OAuth token exchange
+            token_url = f"https://{shop_domain}/admin/oauth/access_token"
+            
+            client_id = os.environ.get("SHOPIFY_CLIENT_ID")
+            client_secret = os.environ.get("SHOPIFY_CLIENT_SECRET")
+            
+            if not client_id or not client_secret:
+                raise HTTPException(
+                    status_code=500, 
+                    detail="Shopify OAuth credentials not configured"
+                )
+            
+            payload = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": oauth_code
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(token_url, json=payload) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Shopify OAuth error: {error_text}"
+                        )
+                    
+                    token_data = await response.json()
+                    access_token = token_data.get("access_token")
+                    scope = token_data.get("scope")
+                    
+                    if not access_token:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Failed to obtain access token from Shopify"
+                        )
+            
+            # Create connector with PENDING status and organization_id
+            connector = Connector(
+                provider=ConnectorProvider.SHOPIFY,
+                access_token=access_token,
+                config={
+                    "shop_domain": shop_domain,
+                    "scope": scope
+                },
+                created_by=user_id,
+                organization_id=organization_id,
+                status="PENDING"
+            )
+            
+            self.db.add(connector)
+            self.db.commit()
+            self.db.refresh(connector)
+            
+            # Test the connection immediately
+            test_result = await self._test_shopify_connection(connector)
+            if test_result.connection_valid:
+                connector.status = "ACTIVE"
+                self.db.add(connector)
+                self.db.commit()
+                
+                # Trigger initial sync
+                await self.sync_shopify(connector.id)
+            else:
+                connector.status = "ERROR"
+                self.db.add(connector)
+                self.db.commit()
+                
+            return connector
+            
+        except Exception as e:
+            logger.error(f"Shopify OAuth initialization error: {str(e)}")
+            raise HTTPException(status_code=400, detail=str(e))
+    
+    async def initialize_square_oauth(self, oauth_code: str, user_id: UUID) -> Connector:
+        """
+        Initialize Square connector using OAuth code exchange.
+        """
+        try:
+            # Get user's organization_id
+            from app.models.data_models.User import User
+            user = self.db.exec(select(User).where(User.id == user_id)).first()
+            if not user:
+                raise HTTPException(status_code=404, detail="User not found")
+            
+            organization_id = user.organization_id
+            
+            # Square OAuth token exchange
+            token_url = "https://connect.squareup.com/oauth2/token"
+            
+            client_id = os.environ.get("SQUARE_CLIENT_ID")
+            client_secret = os.environ.get("SQUARE_CLIENT_SECRET")
+            redirect_uri = os.environ.get("SQUARE_REDIRECT_URI")
+            
+            if not client_id or not client_secret:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Square OAuth credentials not configured"
+                )
+            
+            payload = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": oauth_code,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code"
+            }
+            
+            headers = {
+                "Content-Type": "application/json",
+                "Square-Version": "2025-04-16"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(token_url, json=payload, headers=headers) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Square OAuth error: {error_text}"
+                        )
+                    
+                    token_data = await response.json()
+                    access_token = token_data.get("access_token")
+                    refresh_token = token_data.get("refresh_token")
+                    expires_at = token_data.get("expires_at")
+                    
+                    if not access_token:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Failed to obtain access token from Square"
+                        )
+            
+            # Create connector with organization_id
+            connector = Connector(
+                provider=ConnectorProvider.SQUARE,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                expires_at=datetime.fromisoformat(expires_at.replace('Z', '+00:00')) if expires_at else None,
+                config={
+                    "merchant_id": token_data.get("merchant_id")
+                },
+                created_by=user_id,
+                organization_id=organization_id,
+                status="PENDING"
+            )
+            
+            self.db.add(connector)
+            self.db.commit()
+            self.db.refresh(connector)
+            
+            # Test connection and activate
+            test_result = await self._test_square_connection(connector)
+            if test_result.connection_valid:
+                connector.status = "ACTIVE"
+                self.db.add(connector)
+                self.db.commit()
+                
+                # Trigger initial sync
+                await self.sync_square(connector.id)
+            else:
+                connector.status = "ERROR"
+                self.db.add(connector)
+                self.db.commit()
+                
+            return connector
+            
+        except Exception as e:
+            logger.error(f"Square OAuth initialization error: {str(e)}")
+            raise HTTPException(status_code=400, detail=str(e))
+    
+    async def initialize_lightspeed_oauth(self, oauth_code: str, user_id: UUID) -> Connector:
+        """
+        Initialize Lightspeed connector using OAuth code exchange.
+        """
+        try:
+            # Lightspeed OAuth token exchange
+            token_url = "https://cloud.lightspeedapp.com/oauth/access_token.php"
+            
+            client_id = os.environ.get("LIGHTSPEED_CLIENT_ID")
+            client_secret = os.environ.get("LIGHTSPEED_CLIENT_SECRET")
+            redirect_uri = os.environ.get("LIGHTSPEED_REDIRECT_URI")
+            
+            if not client_id or not client_secret:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Lightspeed OAuth credentials not configured"
+                )
+            
+            payload = {
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": oauth_code,
+                "redirect_uri": redirect_uri,
+                "grant_type": "authorization_code"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(token_url, data=payload) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Lightspeed OAuth error: {error_text}"
+                        )
+                    
+                    token_data = await response.json()
+                    access_token = token_data.get("access_token")
+                    refresh_token = token_data.get("refresh_token")
+                    
+                    if not access_token:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Failed to obtain access token from Lightspeed"
+                        )
+            
+            # Get account information
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get("https://api.lightspeedapp.com/API/Account.json", headers=headers) as response:
+                    if response.status == 200:
+                        account_data = await response.json()
+                        account_info = account_data.get("Account", {})
+                        account_id = account_info.get("accountID")
+                    else:
+                        account_id = None
+            
+            # Create connector
+            connector = Connector(
+                provider=ConnectorProvider.LIGHTSPEED,
+                access_token=access_token,
+                refresh_token=refresh_token,
+                config={
+                    "account_id": account_id
+                },
+                created_by=user_id,
+                status="PENDING"
+            )
+            
+            self.db.add(connector)
+            self.db.commit()
+            self.db.refresh(connector)
+            
+            # Test connection and activate
+            test_result = await self._test_lightspeed_connection(connector)
+            if test_result.connection_valid:
+                connector.status = "ACTIVE"
+                self.db.add(connector)
+                self.db.commit()
+                
+                # Trigger initial sync
+                await self.sync_lightspeed(connector.id)
+            else:
+                connector.status = "ERROR"
+                self.db.add(connector)
+                self.db.commit()
+                
+            return connector
+            
+        except Exception as e:
+            logger.error(f"Lightspeed OAuth initialization error: {str(e)}")
+            raise HTTPException(status_code=400, detail=str(e)) 

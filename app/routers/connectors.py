@@ -13,7 +13,9 @@ from app.schemas.data_models.Connector import (
     ConnectorUpdate,
     ConnectorSync,
     CSVUploadResponse,
-    ConnectorTestResponse
+    ConnectorTestResponse,
+    OAuthInitRequest,
+    OAuthInitResponse
 )
 from app.services.connector_service import ConnectorService
 
@@ -254,4 +256,155 @@ async def test_owner_only(current_user: User = Depends(get_owner_user)):
         "message": "This endpoint is only accessible to users with OWNER role",
         "user_email": current_user.email,
         "user_role": current_user.role
-    } 
+    }
+
+@router.post("/oauth/shopify", response_model=OAuthInitResponse, status_code=status.HTTP_201_CREATED)
+async def initialize_shopify_oauth(
+    oauth_data: OAuthInitRequest,
+    current_user: User = Depends(get_owner_user),
+    db: Session = Depends(get_db)
+):
+    """Initialize Shopify connector via OAuth code exchange"""
+    
+    # Check if Shopify connector already exists for this user
+    existing_connector = db.exec(
+        select(Connector).where(
+            Connector.provider == "SHOPIFY",
+            Connector.created_by == current_user.id
+        )
+    ).first()
+    
+    if existing_connector:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Shopify connector already exists for this user"
+        )
+    
+    if not oauth_data.shop_domain:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Shop domain is required for Shopify OAuth"
+        )
+    
+    service = ConnectorService(db)
+    connector = await service.initialize_shopify_oauth(
+        shop_domain=oauth_data.shop_domain,
+        oauth_code=oauth_data.oauth_code,
+        user_id=current_user.id
+    )
+    
+    return OAuthInitResponse(
+        connector_id=connector.id,
+        provider=connector.provider,
+        status=connector.status,
+        message="Shopify connector initialized successfully" if connector.status == "ACTIVE" else "Shopify connector created but needs configuration"
+    )
+
+@router.post("/oauth/square", response_model=OAuthInitResponse, status_code=status.HTTP_201_CREATED)
+async def initialize_square_oauth(
+    oauth_data: OAuthInitRequest,
+    current_user: User = Depends(get_owner_user),
+    db: Session = Depends(get_db)
+):
+    """Initialize Square connector via OAuth code exchange"""
+    
+    # Check if Square connector already exists for this user
+    existing_connector = db.exec(
+        select(Connector).where(
+            Connector.provider == "SQUARE",
+            Connector.created_by == current_user.id
+        )
+    ).first()
+    
+    if existing_connector:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Square connector already exists for this user"
+        )
+    
+    service = ConnectorService(db)
+    connector = await service.initialize_square_oauth(
+        oauth_code=oauth_data.oauth_code,
+        user_id=current_user.id
+    )
+    
+    return OAuthInitResponse(
+        connector_id=connector.id,
+        provider=connector.provider,
+        status=connector.status,
+        message="Square connector initialized successfully" if connector.status == "ACTIVE" else "Square connector created but needs configuration"
+    )
+
+@router.post("/oauth/lightspeed", response_model=OAuthInitResponse, status_code=status.HTTP_201_CREATED)
+async def initialize_lightspeed_oauth(
+    oauth_data: OAuthInitRequest,
+    current_user: User = Depends(get_owner_user),
+    db: Session = Depends(get_db)
+):
+    """Initialize Lightspeed connector via OAuth code exchange"""
+    
+    # Check if Lightspeed connector already exists for this user
+    existing_connector = db.exec(
+        select(Connector).where(
+            Connector.provider == "LIGHTSPEED",
+            Connector.created_by == current_user.id
+        )
+    ).first()
+    
+    if existing_connector:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Lightspeed connector already exists for this user"
+        )
+    
+    service = ConnectorService(db)
+    connector = await service.initialize_lightspeed_oauth(
+        oauth_code=oauth_data.oauth_code,
+        user_id=current_user.id
+    )
+    
+    return OAuthInitResponse(
+        connector_id=connector.id,
+        provider=connector.provider,
+        status=connector.status,
+        message="Lightspeed connector initialized successfully" if connector.status == "ACTIVE" else "Lightspeed connector created but needs configuration"
+    )
+
+@router.get("/oauth/urls", response_model=dict)
+async def get_oauth_urls():
+    """Get OAuth authorization URLs for each provider"""
+    import os
+    
+    shopify_client_id = os.environ.get("SHOPIFY_CLIENT_ID")
+    square_client_id = os.environ.get("SQUARE_CLIENT_ID") 
+    lightspeed_client_id = os.environ.get("LIGHTSPEED_CLIENT_ID")
+    
+    base_url = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+    
+    oauth_urls = {}
+    
+    if shopify_client_id:
+        oauth_urls["shopify"] = {
+            "auth_url": "https://{shop_domain}/admin/oauth/authorize",
+            "client_id": shopify_client_id,
+            "scopes": "read_products,read_inventory,read_locations",
+            "redirect_uri": f"{base_url}/connectors/oauth/callback"
+        }
+    
+    if square_client_id:
+        oauth_urls["square"] = {
+            "auth_url": "https://connect.squareup.com/oauth2/authorize",
+            "client_id": square_client_id,
+            "scopes": "INVENTORY_READ",
+            "redirect_uri": f"{base_url}/connectors/oauth/callback"
+        }
+    
+    if lightspeed_client_id:
+        oauth_urls["lightspeed"] = {
+            "auth_url": "https://cloud.lightspeedapp.com/oauth/authorize.php",
+            "client_id": lightspeed_client_id,
+            "scopes": "employee:all",
+            "redirect_uri": f"{base_url}/connectors/oauth/callback"
+        }
+    
+    return oauth_urls 
