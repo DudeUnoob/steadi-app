@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Loader2, Store, ExternalLink } from "lucide-react"
+import { Loader2, Store, ExternalLink, Shield, CheckCircle } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useConnectorStore } from "@/stores/connectorStore"
 
@@ -23,18 +23,81 @@ export function ConnectorDialog({ open, onOpenChange, connector, onClose }: Conn
   const [provider, setProvider] = useState("")
   const [config, setConfig] = useState<any>({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [setupMethod, setSetupMethod] = useState<"oauth" | "manual">("oauth")
+  const [shopDomain, setShopDomain] = useState("")
+  const [oauthUrls, setOauthUrls] = useState<any>({})
 
-  const { createConnector, updateConnector, isLoading } = useConnectorStore()
+  const { createConnector, updateConnector, isLoading, getOAuthUrls, initializeOAuth } = useConnectorStore()
 
   useEffect(() => {
     if (connector) {
       setProvider(connector.provider)
       setConfig(connector.config || {})
+      setSetupMethod("manual") // Existing connectors use manual editing
     } else {
       setProvider("")
       setConfig({})
+      setSetupMethod("oauth")
+      // Load OAuth URLs when dialog opens
+      loadOAuthUrls()
     }
-  }, [connector])
+  }, [connector, open])
+
+  const loadOAuthUrls = async () => {
+    try {
+      const urls = await getOAuthUrls()
+      setOauthUrls(urls)
+    } catch (error) {
+      console.error("Failed to load OAuth URLs:", error)
+    }
+  }
+
+  const handleOAuthConnect = (provider: string) => {
+    if (!oauthUrls[provider.toLowerCase()]) {
+      toast({
+        title: "Error",
+        description: `${provider} OAuth is not configured`,
+        variant: "destructive"
+      })
+      return
+    }
+
+    const providerConfig = oauthUrls[provider.toLowerCase()]
+    let authUrl = providerConfig.auth_url
+
+    // Build OAuth URL with parameters
+    const params = new URLSearchParams({
+      client_id: providerConfig.client_id,
+      redirect_uri: providerConfig.redirect_uri,
+      scope: providerConfig.scopes,
+      response_type: "code",
+      state: `${provider.toLowerCase()}_${Date.now()}` // CSRF protection
+    })
+
+    // Special handling for Shopify - need shop domain
+    if (provider === "SHOPIFY") {
+      if (!shopDomain) {
+        toast({
+          title: "Error",
+          description: "Please enter your shop domain first",
+          variant: "destructive"
+        })
+        return
+      }
+      authUrl = authUrl.replace("{shop_domain}", shopDomain)
+    }
+
+    const finalUrl = `${authUrl}?${params.toString()}`
+    
+    // Store provider and shop domain for callback
+    sessionStorage.setItem("steadi_oauth_provider", provider)
+    if (shopDomain) {
+      sessionStorage.setItem("steadi_oauth_shop_domain", shopDomain)
+    }
+
+    // Open OAuth flow in same window
+    window.location.href = finalUrl
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -67,6 +130,56 @@ export function ConnectorDialog({ open, onOpenChange, connector, onClose }: Conn
       ...prev,
       [key]: value
     }))
+  }
+
+  const renderOAuthOption = (providerName: string, description: string, available: boolean) => {
+    return (
+      <Card className={`cursor-pointer transition-colors ${!available ? 'opacity-50' : 'hover:border-primary'}`}>
+        <CardContent className="p-6">
+          <div className="flex items-center space-x-4">
+            <div className="flex-shrink-0">
+              <Store className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="text-lg font-medium">{providerName}</h3>
+                {available && <Shield className="h-4 w-4 text-green-500" />}
+              </div>
+              <p className="text-sm text-muted-foreground">{description}</p>
+            </div>
+            <div className="flex-shrink-0">
+              {available ? (
+                providerName === "Shopify" ? (
+                  <div className="space-y-2">
+                    <Input
+                      placeholder="mystore.myshopify.com"
+                      value={shopDomain}
+                      onChange={(e) => setShopDomain(e.target.value)}
+                      className="w-48"
+                    />
+                    <Button 
+                      onClick={() => handleOAuthConnect("SHOPIFY")}
+                      disabled={!shopDomain}
+                      className="w-full"
+                    >
+                      Connect Shopify
+                    </Button>
+                  </div>
+                ) : (
+                  <Button onClick={() => handleOAuthConnect(providerName.toUpperCase())}>
+                    Connect {providerName}
+                  </Button>
+                )
+              ) : (
+                <Button variant="outline" disabled>
+                  Not Available
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    )
   }
 
   const renderProviderFields = () => {
@@ -162,81 +275,64 @@ export function ConnectorDialog({ open, onOpenChange, connector, onClose }: Conn
     }
   }
 
-  const getProviderInstructions = () => {
-    switch (provider) {
-      case 'SHOPIFY':
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Setup Instructions</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm space-y-2">
-              <p>1. Go to your Shopify admin panel</p>
-              <p>2. Navigate to Apps → Develop apps</p>
-              <p>3. Create a private app with inventory read permissions</p>
-              <p>4. Copy the access token and your store domain</p>
-              <Button variant="link" size="sm" className="p-0 h-auto">
-                <ExternalLink className="w-3 h-3 mr-1" />
-                View Shopify Documentation
-              </Button>
-            </CardContent>
-          </Card>
-        )
+  // If no connector (new connection), show OAuth wizard
+  if (!connector && setupMethod === "oauth") {
+    return (
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Connect Your POS System</DialogTitle>
+            <DialogDescription>
+              Choose your point of sale system and connect securely with OAuth
+            </DialogDescription>
+          </DialogHeader>
 
-      case 'SQUARE':
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Setup Instructions</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm space-y-2">
-              <p>1. Go to Square Developer Dashboard</p>
-              <p>2. Create a new application</p>
-              <p>3. Generate an access token with inventory permissions</p>
-              <p>4. Copy the access token</p>
-              <Button variant="link" size="sm" className="p-0 h-auto">
-                <ExternalLink className="w-3 h-3 mr-1" />
-                View Square Documentation
-              </Button>
-            </CardContent>
-          </Card>
-        )
+          <div className="space-y-4">
+            {renderOAuthOption(
+              "Shopify", 
+              "Connect your Shopify store to automatically sync inventory", 
+              !!oauthUrls.shopify
+            )}
+            {renderOAuthOption(
+              "Square", 
+              "Connect your Square POS to sync inventory and sales data", 
+              !!oauthUrls.square
+            )}
+            {renderOAuthOption(
+              "Lightspeed", 
+              "Connect your Lightspeed Retail system for inventory management", 
+              !!oauthUrls.lightspeed
+            )}
+          </div>
 
-      case 'LIGHTSPEED':
-        return (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm">Setup Instructions</CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm space-y-2">
-              <p>1. Contact Lightspeed to get API access</p>
-              <p>2. Obtain your account ID and access token</p>
-              <p>3. Ensure you have inventory read permissions</p>
-              <Button variant="link" size="sm" className="p-0 h-auto">
-                <ExternalLink className="w-3 h-3 mr-1" />
-                View Lightspeed Documentation
-              </Button>
-            </CardContent>
-          </Card>
-        )
-
-      default:
-        return null
-    }
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSetupMethod("manual")}
+            >
+              Manual Setup Instead
+            </Button>
+            <Button variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    )
   }
 
+  // Manual setup or editing existing connector
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px]">
+      <DialogContent>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Store className="w-5 h-5" />
-            {connector ? "Edit Connector" : "Add New Connector"}
+          <DialogTitle>
+            {connector ? "Edit Connector" : "Manual Connector Setup"}
           </DialogTitle>
           <DialogDescription>
             {connector 
-              ? "Update your connector configuration"
-              : "Connect your POS system to automatically sync inventory data"
+              ? "Update your connector configuration" 
+              : "Manually configure your POS system connection"
             }
           </DialogDescription>
         </DialogHeader>
@@ -244,43 +340,38 @@ export function ConnectorDialog({ open, onOpenChange, connector, onClose }: Conn
         <form onSubmit={handleSubmit} className="space-y-6">
           {!connector && (
             <div className="space-y-2">
-              <Label htmlFor="provider">POS Provider</Label>
+              <Label htmlFor="provider">Provider</Label>
               <Select value={provider} onValueChange={setProvider} required>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select your POS system" />
+                  <SelectValue placeholder="Select a provider" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="SHOPIFY">Shopify</SelectItem>
                   <SelectItem value="SQUARE">Square</SelectItem>
-                  <SelectItem value="LIGHTSPEED">Lightspeed Retail</SelectItem>
+                  <SelectItem value="LIGHTSPEED">Lightspeed</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           )}
 
-          {provider && (
-            <>
-              {renderProviderFields()}
-              {getProviderInstructions()}
-            </>
-          )}
+          {provider && renderProviderFields()}
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}>
+            {!connector && setupMethod === "manual" && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setSetupMethod("oauth")}
+              >
+                Use OAuth Instead
+              </Button>
+            )}
+            <Button variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button 
-              type="submit" 
-              disabled={!provider || isSubmitting || isLoading}
-            >
-              {isSubmitting || isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  {connector ? "Updating..." : "Creating..."}
-                </>
-              ) : (
-                connector ? "Update Connector" : "Create Connector"
-              )}
+            <Button type="submit" disabled={isSubmitting || isLoading}>
+              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {connector ? "Update" : "Create"} Connector
             </Button>
           </DialogFooter>
         </form>
