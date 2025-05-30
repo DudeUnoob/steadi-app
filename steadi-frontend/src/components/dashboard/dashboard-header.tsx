@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 import { useAuth } from "@/lib/AuthContext"
 import { useState, useEffect } from "react"
 import { useToast } from "@/components/ui/use-toast"
+import NotificationBell from "@/components/alerts/NotificationBell"
 import { 
   Tooltip,
   TooltipContent,
@@ -105,6 +106,13 @@ export function DashboardHeader() {
               Sales
               <span className="absolute -bottom-1 left-0 w-full h-[2px] bg-gradient-to-r from-steadi-red via-steadi-pink to-steadi-purple transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300"></span>
             </Link>
+            <Link
+              to="/alerts"
+              className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary relative group"
+            >
+              Alerts
+              <span className="absolute -bottom-1 left-0 w-full h-[2px] bg-gradient-to-r from-steadi-red via-steadi-pink to-steadi-purple transform scale-x-0 group-hover:scale-x-100 transition-transform duration-300"></span>
+            </Link>
           </nav>
         </div>
         <div className="flex items-center gap-4">
@@ -137,12 +145,7 @@ export function DashboardHeader() {
               className="w-[200px] pl-8 md:w-[240px] lg:w-[320px] bg-muted/50 border-[#2a2a30] focus-visible:ring-steadi-pink"
             />
           </div>
-          <Button variant="ghost" size="icon" className="relative">
-            <Bell className="h-5 w-5" />
-            <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-steadi-red text-[10px] text-white">
-              3
-            </span>
-          </Button>
+          <NotificationBell />
           <Button variant="ghost" size="icon">
             <HelpCircle className="h-5 w-5" />
           </Button>

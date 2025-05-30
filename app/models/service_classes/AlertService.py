@@ -2,13 +2,19 @@ from uuid import UUID
 from typing import Dict, List, Optional, Any
 from sqlmodel import Session, select, func
 from datetime import datetime, timedelta
+import logging
 
 from app.models.data_models.Product import Product
 from app.models.data_models.Notification import Notification
 from app.models.data_models.Supplier import Supplier
+from app.models.data_models.User import User
 from app.models.enums.AlertLevel import AlertLevel
 from app.models.enums.NotificationChannel import NotificationChannel
 from app.models.service_classes.ThresholdService import ThresholdService
+from app.services.email_service import EmailService
+from app.services.rate_limit_service import rate_limiter
+
+logger = logging.getLogger(__name__)
 
 class AlertService:
     """Service for managing product inventory alerts"""
@@ -16,6 +22,7 @@ class AlertService:
     def __init__(self, db: Session):
         self.db = db
         self.threshold_service = ThresholdService(db)
+        self.email_service = EmailService()
     
     def update_product_alert_levels(self, user_id: UUID) -> Dict[str, int]:
         """
@@ -206,3 +213,178 @@ class AlertService:
             })
             
         return result
+    
+    def send_email_alerts(self, user_id: UUID) -> Dict[str, Any]:
+        """
+        Send email alerts for products that need reordering.
+        Implements rate limiting as per PRD requirements.
+        """
+        # Check rate limit first
+        tenant_id = str(user_id)  # Using user_id as tenant_id for now
+        
+        if not rate_limiter.check_rate_limit(tenant_id):
+            logger.warning(f"Rate limit exceeded for user {user_id}")
+            return {
+                "success": False,
+                "message": "Rate limit exceeded. Please try again later.",
+                "rate_limit_status": rate_limiter.get_rate_limit_status(tenant_id)
+            }
+        
+        try:
+            # Get user information
+            user = self.db.get(User, user_id)
+            if not user:
+                logger.error(f"User {user_id} not found")
+                return {"success": False, "message": "User not found"}
+            
+            # Get current alerts
+            alerts = self.get_reorder_alerts(user_id)
+            
+            if not alerts:
+                logger.info(f"No alerts to send for user {user_id}")
+                return {"success": True, "message": "No alerts to send", "alerts_sent": 0}
+            
+            # Get alert counts
+            alert_counts = self.update_product_alert_levels(user_id)
+            
+            # Send email
+            email_sent = self.email_service.send_stock_alert_email(
+                to_email=user.email,
+                user_name=user.email.split('@')[0].title(),  # Simple name extraction
+                alerts=alerts,
+                alert_counts=alert_counts
+            )
+            
+            if email_sent:
+                # Create email notification record
+                self._create_email_notification_record(user_id, alerts, alert_counts)
+                
+                logger.info(f"Email alert sent successfully to {user.email}")
+                return {
+                    "success": True,
+                    "message": f"Email alert sent to {user.email}",
+                    "alerts_sent": len(alerts),
+                    "alert_counts": alert_counts
+                }
+            else:
+                logger.error(f"Failed to send email alert to {user.email}")
+                return {
+                    "success": False,
+                    "message": "Failed to send email alert",
+                    "alerts_sent": 0
+                }
+                
+        except Exception as e:
+            logger.error(f"Error sending email alerts for user {user_id}: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Error sending email alerts: {str(e)}",
+                "alerts_sent": 0
+            }
+    
+    def _create_email_notification_record(
+        self, 
+        user_id: UUID, 
+        alerts: List[Dict], 
+        alert_counts: Dict[str, int]
+    ) -> None:
+        """Create a notification record for the email that was sent"""
+        
+        red_count = alert_counts.get("red", 0)
+        yellow_count = alert_counts.get("yellow", 0)
+        
+        # Create summary message
+        if red_count > 0:
+            message = f"🚨 URGENT: {red_count} products need immediate reordering"
+        elif yellow_count > 0:
+            message = f"⚠️ {yellow_count} products approaching reorder point"
+        else:
+            message = "📊 Inventory status update sent"
+        
+        notification = Notification(
+            user_id=user_id,
+            channel=NotificationChannel.EMAIL,
+            payload={
+                "type": "stock_alert_email",
+                "message": message,
+                "alert_counts": alert_counts,
+                "products_count": len(alerts),
+                "red_alerts": red_count,
+                "yellow_alerts": yellow_count,
+                "email_sent_at": datetime.utcnow().isoformat()
+            }
+        )
+        
+        self.db.add(notification)
+        self.db.commit()
+    
+    def get_rate_limit_status(self, user_id: UUID) -> Dict[str, Any]:
+        """Get current rate limit status for a user"""
+        tenant_id = str(user_id)
+        return rate_limiter.get_rate_limit_status(tenant_id)
+    
+    def mark_all_notifications_read(self, user_id: UUID) -> int:
+        """Mark all notifications as read for a user. Returns count of updated notifications."""
+        notifications = self.db.exec(
+            select(Notification).where(
+                (Notification.user_id == user_id) &
+                (Notification.read_at == None)
+            )
+        ).all()
+        
+        count = 0
+        for notification in notifications:
+            notification.read_at = datetime.utcnow()
+            self.db.add(notification)
+            count += 1
+        
+        if count > 0:
+            self.db.commit()
+            logger.info(f"Marked {count} notifications as read for user {user_id}")
+        
+        return count
+    
+    def delete_notification(self, notification_id: UUID, user_id: UUID) -> bool:
+        """Delete a notification. Returns success status."""
+        notification = self.db.exec(
+            select(Notification).where(
+                (Notification.id == notification_id) &
+                (Notification.user_id == user_id)
+            )
+        ).first()
+        
+        if notification:
+            self.db.delete(notification)
+            self.db.commit()
+            logger.info(f"Deleted notification {notification_id} for user {user_id}")
+            return True
+        
+        return False
+    
+    def get_alert_summary(self, user_id: UUID) -> Dict[str, Any]:
+        """Get a summary of current alerts and notification status"""
+        # Update alert levels first
+        alert_counts = self.update_product_alert_levels(user_id)
+        
+        # Get unread notification count
+        unread_count = self.get_unread_notification_count(user_id)
+        
+        # Get rate limit status
+        rate_limit_status = self.get_rate_limit_status(user_id)
+        
+        # Get recent alerts (last 24 hours)
+        recent_alerts = self.db.exec(
+            select(Notification).where(
+                (Notification.user_id == user_id) &
+                (Notification.sent_at >= datetime.utcnow() - timedelta(hours=24))
+            ).order_by(Notification.sent_at.desc()).limit(10)
+        ).all()
+        
+        return {
+            "alert_counts": alert_counts,
+            "unread_notifications": unread_count,
+            "rate_limit_status": rate_limit_status,
+            "recent_notifications": len(recent_alerts),
+            "needs_immediate_attention": alert_counts.get("red", 0) > 0,
+            "total_products_monitored": alert_counts.get("total", 0)
+        }
