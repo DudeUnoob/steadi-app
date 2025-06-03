@@ -163,4 +163,80 @@ async def mark_notification_read(
             detail="Notification not found or you don't have permission to access it"
         )
     
-    return {"success": True, "message": "Notification marked as read"} 
+    return {"success": True, "message": "Notification marked as read"}
+
+@router.post("/send-email")
+async def send_email_alerts(
+    request: Request,
+    current_user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
+    """Send email alerts for products that need reordering"""
+    alert_service = AlertService(db)
+    result = alert_service.send_email_alerts(current_user.id)
+    
+    if not result["success"]:
+        if "rate limit" in result["message"].lower():
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=result["message"]
+            )
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=result["message"]
+            )
+    
+    return result
+
+@router.get("/summary")
+async def get_alert_summary(
+    request: Request,
+    current_user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
+    """Get comprehensive alert summary including counts, notifications, and rate limits"""
+    alert_service = AlertService(db)
+    summary = alert_service.get_alert_summary(current_user.id)
+    return summary
+
+@router.get("/rate-limit-status")
+async def get_rate_limit_status(
+    request: Request,
+    current_user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
+    """Get current rate limit status for the user"""
+    alert_service = AlertService(db)
+    status_info = alert_service.get_rate_limit_status(current_user.id)
+    return status_info
+
+@router.post("/notifications/mark-all-read")
+async def mark_all_notifications_read(
+    request: Request,
+    current_user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
+    """Mark all notifications as read for the current user"""
+    alert_service = AlertService(db)
+    count = alert_service.mark_all_notifications_read(current_user.id)
+    return {"success": True, "message": f"Marked {count} notifications as read", "count": count}
+
+@router.delete("/notifications/{notification_id}")
+async def delete_notification(
+    request: Request,
+    notification_id: UUID,
+    current_user: User = Depends(get_authenticated_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a notification"""
+    alert_service = AlertService(db)
+    success = alert_service.delete_notification(notification_id, current_user.id)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Notification not found or you don't have permission to delete it"
+        )
+    
+    return {"success": True, "message": "Notification deleted"} 
