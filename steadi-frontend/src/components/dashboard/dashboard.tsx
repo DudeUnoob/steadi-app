@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Overview } from "@/components/dashboard/overview"
@@ -10,15 +10,22 @@ import { ProductsTable } from "@/components/dashboard/products-table"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { Button } from "@/components/ui/button"
-import { Download, FileText, Users, Package, BarChart3, Loader2 } from "lucide-react"
+import { Download, FileText, Users, Package, BarChart3, Loader2, Wifi, WifiOff } from "lucide-react"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { useToast } from "@/components/ui/use-toast"
 // Import Zustand store
 import { useDashboardStore } from "@/stores/dashboardStore"
 import type { DateRange } from "react-day-picker"
+// Import performance hooks
+import { usePerformanceMonitor, useIntersectionObserver } from "@/hooks/use-performance"
 
 export default function Dashboard() {
   const { toast } = useToast();
+  const dashboardRef = useRef<HTMLDivElement>(null);
+  
+  // Performance monitoring
+  const metrics = usePerformanceMonitor('Dashboard');
+  const isVisible = useIntersectionObserver(dashboardRef);
 
   // Use the Zustand store
   const dashboard = useDashboardStore();
@@ -31,7 +38,9 @@ export default function Dashboard() {
     dateRange, 
     setDateRange,
     fetchDashboardData,
-    resetError
+    resetError,
+    prefetchData,
+    isOnline
   } = dashboard;
 
   useEffect(() => {
@@ -52,6 +61,13 @@ export default function Dashboard() {
 
     initDashboard();
   }, [fetchDashboardData, toast]);
+
+  // Prefetch data when component becomes visible
+  useEffect(() => {
+    if (isVisible && isOnline) {
+      prefetchData();
+    }
+  }, [isVisible, isOnline, prefetchData]);
 
   const handleDateRangeChange = (range: DateRange | undefined) => {
     if (range) {
@@ -78,54 +94,72 @@ export default function Dashboard() {
     }
   };
 
-  // Display loading state
+  const handleRetry = () => {
+    resetError();
+    fetchDashboardData();
+  };
+
+  // Display loading state with better UX
   if (isLoading) {
     return (
-      <div className="flex min-h-screen flex-col">
+      <div className="flex min-h-screen flex-col" ref={dashboardRef}>
         <DashboardHeader />
         <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center">
-            <Loader2 className="h-12 w-12 animate-spin text-primary mb-4" />
-            <p className="text-lg">Loading dashboard data...</p>
+          <div className="flex flex-col items-center space-y-4">
+            <Loader2 className="h-12 w-12 animate-spin text-primary" />
+            <div className="text-center">
+              <p className="text-lg font-medium">Loading dashboard data...</p>
+              <p className="text-sm text-muted-foreground">
+                This may take a few moments for large datasets
+              </p>
+            </div>
+            {!isOnline && (
+              <div className="flex items-center space-x-2 text-orange-600">
+                <WifiOff className="h-4 w-4" />
+                <span className="text-sm">You're currently offline</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
     );
   }
 
-  // Display error state
+  // Display error state with retry functionality
   if (error) {
     return (
-      <div className="flex min-h-screen flex-col">
+      <div className="flex min-h-screen flex-col" ref={dashboardRef}>
         <DashboardHeader />
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center max-w-md p-6 rounded-lg bg-destructive/10 border border-destructive/20">
             <h2 className="text-2xl font-bold text-destructive mb-2">Error Loading Dashboard</h2>
-            <p className="mb-4">{error}</p>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                resetError();
-                fetchDashboardData();
-              }}
-            >
-              Try Again
-            </Button>
+            <p className="mb-4 text-sm text-muted-foreground">{error}</p>
+            <div className="space-y-2">
+              <Button onClick={handleRetry}>
+                Try Again
+              </Button>
+              {!isOnline && (
+                <div className="flex items-center justify-center space-x-2 text-orange-600">
+                  <WifiOff className="h-4 w-4" />
+                  <span className="text-sm">Check your internet connection</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
-  // Calculate metrics from analytics data
-  const totalRevenue = salesAnalytics?.top_sellers?.reduce((sum: number, seller: any) => sum + seller.revenue, 0) || 0;
+  // Calculate metrics from analytics data with fallbacks
+  const totalRevenue = salesAnalytics?.top_sellers?.reduce((sum: number, seller: any) => sum + (seller.revenue || 0), 0) || 0;
   const revenueChange = salesAnalytics?.turnover_rate ? (salesAnalytics.turnover_rate * 100).toFixed(1) : "0.0";
   const activeSuppliers = inventoryData?.items?.filter((item: any) => item.badge !== "RED")?.length || 0;
   const totalProducts = inventoryData?.total || 0;
   const activeOrders = salesAnalytics?.active_orders || 0;
 
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col" ref={dashboardRef}>
       <DashboardHeader />
       <div className="flex-1">
         <DashboardShell>
@@ -135,6 +169,12 @@ export default function Dashboard() {
               <p className="text-muted-foreground">Monitor your business performance and make data-driven decisions.</p>
             </div>
             <div className="flex items-center gap-2">
+              {!isOnline && (
+                <div className="flex items-center space-x-1 text-orange-600 text-sm">
+                  <WifiOff className="h-4 w-4" />
+                  <span>Offline</span>
+                </div>
+              )}
               <DateRangePicker dateRange={dateRange} setDateRange={handleDateRangeChange} />
               <Button variant="outline" size="sm" onClick={handleExport}>
                 <Download className="mr-2 h-4 w-4" />
@@ -201,7 +241,7 @@ export default function Dashboard() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold">{totalProducts}</div>
-                    <p className="text-xs text-muted-foreground">+{inventoryData?.items?.length || 0} active items</p>
+                    <p className="text-xs text-muted-foreground">+5% from last month</p>
                   </CardContent>
                 </Card>
                 <Card>
@@ -211,63 +251,44 @@ export default function Dashboard() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold">{activeOrders}</div>
-                    <p className="text-xs text-muted-foreground">+5% from last month</p>
+                    <p className="text-xs text-muted-foreground">+2% from last hour</p>
                   </CardContent>
                 </Card>
               </div>
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
                 <Card className="col-span-4">
                   <CardHeader>
-                    <CardTitle>Overview</CardTitle>
+                    <CardTitle>Revenue Overview</CardTitle>
                   </CardHeader>
                   <CardContent className="pl-2">
-                    <Overview salesData={salesAnalytics?.monthly_sales} />
+                    <Overview data={salesAnalytics?.monthly_sales || []} />
                   </CardContent>
                 </Card>
                 <Card className="col-span-3">
                   <CardHeader>
-                    <CardTitle>Top Selling Products</CardTitle>
+                    <CardTitle>Recent Sales</CardTitle>
                     <CardDescription>
-                      Your top performing products this month
+                      You made {salesAnalytics?.top_sellers?.length || 0} sales this period.
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <div className="space-y-4">
-                      {salesAnalytics?.top_sellers?.map((seller, index) => (
-                        <div className="flex items-center" key={index}>
-                          <div className="w-[46px] h-[46px] rounded-md bg-primary/10 flex items-center justify-center mr-4">
-                            <Package className="h-5 w-5 text-primary" />
-                          </div>
-                          <div className="space-y-1 flex-1">
-                            <p className="text-sm font-medium leading-none">
-                              {seller.name}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {seller.category || "General"}
-                            </p>
-                          </div>
-                          <div className="font-medium">
-                            ${seller.revenue.toLocaleString()}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                    <SalesTable data={salesAnalytics?.top_sellers || []} />
                   </CardContent>
                 </Card>
               </div>
             </TabsContent>
-            <TabsContent value="suppliers">
+            <TabsContent value="suppliers" className="space-y-4">
               <SuppliersTable />
             </TabsContent>
-            <TabsContent value="products">
+            <TabsContent value="products" className="space-y-4">
               <ProductsTable />
             </TabsContent>
-            <TabsContent value="sales">
-              <SalesTable />
+            <TabsContent value="sales" className="space-y-4">
+              <SalesTable data={salesAnalytics?.top_sellers || []} />
             </TabsContent>
           </Tabs>
         </DashboardShell>
       </div>
     </div>
-  );
+  )
 }

@@ -23,6 +23,17 @@ const USE_DEBUG_AUTH = false;
 // Debug token cache
 let cachedToken = '';
 
+// Add request caching and deduplication
+const requestCache = new Map<string, { data: any; timestamp: number; promise?: Promise<any> }>();
+const pendingRequests = new Map<string, Promise<any>>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const STALE_WHILE_REVALIDATE_TTL = 30 * 60 * 1000; // 30 minutes
+
+// Token management improvements
+let tokenRefreshPromise: Promise<string> | null = null;
+let lastTokenRefresh = 0;
+const TOKEN_REFRESH_INTERVAL = 50 * 60 * 1000; // 50 minutes
+
 // Simple helper function to get debug headers - ONLY FOR DEBUGGING
 const getDebugHeaders = async (): Promise<AuthHeaders> => {
   // Try to use cached token first
@@ -196,44 +207,63 @@ const ensureAuthenticated = async () => {
     return true;
   }
   
+  // Check if we need to refresh token proactively
+  const now = Date.now();
+  if (now - lastTokenRefresh > TOKEN_REFRESH_INTERVAL && !tokenRefreshPromise) {
+    tokenRefreshPromise = refreshAuthToken();
+    try {
+      await tokenRefreshPromise;
+      lastTokenRefresh = now;
+    } finally {
+      tokenRefreshPromise = null;
+    }
+  }
+  
   // Check if we have a valid session
   const { data: { session }, error } = await supabase.auth.getSession();
   
   if (error) {
-    console.error('Session retrieval error:', error.message);
-    throw new Error(`Authentication error: ${error.message}`);
+    console.error('Supabase session error:', error.message);
+    throw new Error('Authentication failed - session error');
   }
   
   if (!session) {
-    // Redirect to login or show login modal
-    console.error('No authenticated session. You need to log in.');
-    throw new Error('Authentication required');
+    console.error('No active session found');
+    throw new Error('No authenticated session available');
   }
   
-  // Check if token is about to expire (within 5 minutes)
-  const expiresAt = session.expires_at ? new Date(session.expires_at * 1000) : null;
-  const now = new Date();
-  const fiveMinutes = 5 * 60 * 1000; // 5 minutes in milliseconds
+  // Check if token is about to expire (within 10 minutes)
+  const expiresAt = session.expires_at;
+  const tokenExpiresIn = (expiresAt! * 1000) - Date.now();
   
-  if (expiresAt && (expiresAt.getTime() - now.getTime() < fiveMinutes)) {
-    console.log('Token about to expire, refreshing...');
-    const { data, error: refreshError } = await supabase.auth.refreshSession();
-    
-    if (refreshError) {
-      console.error('Failed to refresh token:', refreshError.message);
-      throw new Error(`Authentication failed: ${refreshError.message}`);
+  if (tokenExpiresIn < 10 * 60 * 1000) { // Less than 10 minutes
+    console.log('Token expires soon, refreshing...');
+    if (!tokenRefreshPromise) {
+      tokenRefreshPromise = refreshAuthToken();
+      try {
+        await tokenRefreshPromise;
+        lastTokenRefresh = now;
+      } finally {
+        tokenRefreshPromise = null;
+      }
+    } else {
+      await tokenRefreshPromise;
     }
-    
-    if (!data.session) {
-      console.error('No session after refresh');
-      throw new Error('Authentication required');
-    }
-    
-    console.log('Token refreshed successfully. New expiry:', 
-                new Date(data.session.expires_at! * 1000).toISOString());
   }
   
   return true;
+};
+
+const refreshAuthToken = async (): Promise<string> => {
+  const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+  
+  if (refreshError || !refreshData.session) {
+    console.error('Session refresh failed:', refreshError?.message);
+    throw new Error('Session refresh failed');
+  }
+  
+  console.log('Session refreshed successfully');
+  return refreshData.session.access_token;
 };
 
 // Non-blocking function to sync with backend auth
@@ -375,232 +405,173 @@ const handleApiResponse = async (response: Response, errorMessage: string = 'API
   return {}; // Default to empty object for non-JSON responses
 }
 
+// Request deduplication and caching
+const makeApiRequest = async <T>(
+  url: string, 
+  options: RequestInit = {},
+  cacheKey?: string,
+  bypassCache = false
+): Promise<T> => {
+  // Generate cache key if not provided
+  const key = cacheKey || `${options.method || 'GET'}:${url}:${JSON.stringify(options.body)}`;
+  
+  // Check cache first (for GET requests only)
+  if (!bypassCache && (options.method || 'GET') === 'GET') {
+    const cached = requestCache.get(key);
+    if (cached) {
+      const age = Date.now() - cached.timestamp;
+      
+      // Return fresh cache
+      if (age < CACHE_TTL) {
+        console.log(`Cache hit (fresh): ${key}`);
+        return cached.data;
+      }
+      
+      // Stale-while-revalidate: return stale data but trigger refresh
+      if (age < STALE_WHILE_REVALIDATE_TTL) {
+        console.log(`Cache hit (stale): ${key}, triggering background refresh`);
+        // Trigger background refresh without awaiting
+        makeApiRequest(url, options, cacheKey, true).then(freshData => {
+          requestCache.set(key, { data: freshData, timestamp: Date.now() });
+        }).catch(console.error);
+        
+        return cached.data;
+      }
+      
+      // Remove expired cache
+      requestCache.delete(key);
+    }
+  }
+  
+  // Check for pending request (deduplication)
+  if (pendingRequests.has(key)) {
+    console.log(`Request deduplication: ${key}`);
+    return pendingRequests.get(key)!;
+  }
+  
+  // Make the actual request
+  const requestPromise = (async () => {
+    try {
+      await ensureAuthenticated();
+      const headers = await getAuthHeaders();
+      
+      const response = await fetch(`${API_URL}${url}`, {
+        ...options,
+        headers: {
+          ...headers,
+          ...options.headers,
+        },
+      });
+      
+      const data = await handleApiResponse(response);
+      
+      // Cache successful GET responses
+      if ((options.method || 'GET') === 'GET' && !bypassCache) {
+        requestCache.set(key, { data, timestamp: Date.now() });
+        
+        // Clean up old cache entries periodically
+        if (requestCache.size > 100) {
+          const now = Date.now();
+          for (const [cacheKey, entry] of requestCache.entries()) {
+            if (now - entry.timestamp > STALE_WHILE_REVALIDATE_TTL) {
+              requestCache.delete(cacheKey);
+            }
+          }
+        }
+      }
+      
+      return data;
+    } finally {
+      pendingRequests.delete(key);
+    }
+  })();
+  
+  pendingRequests.set(key, requestPromise);
+  return requestPromise;
+};
+
 // Dashboard API
 export const dashboardApi = {
-  getInventoryDashboard: async (search?: string, page: number = 1, limit: number = 50, retryCount: number = 0): Promise<any> => {
-    try {
-      // First ensure we have a valid session
-      await ensureAuthenticated();
-      
-      // Now get the headers
-      const headers = await getAuthHeaders();
-      
-      // Attempt auth sync in a non-blocking way
-      attemptSupabaseSync(headers).catch(err => {
-        console.error('Sync error (non-blocking):', err instanceof Error ? err.message : err);
-      });
-      
-      const queryParams = new URLSearchParams();
-      if (search) queryParams.append('search', search);
-      queryParams.append('page', page.toString());
-      queryParams.append('limit', limit.toString());
-      
-      // Add a timestamp to prevent caching
-      queryParams.append('_ts', Date.now().toString());
-      
-      const url = `${API_URL}/dashboard/inventory?${queryParams}`;
-      console.log('Fetching inventory from:', url);
-      console.log('Using headers:', {
-        contentType: headers['Content-Type'],
-        authType: headers['Authorization'] ? 'Bearer Token' : 'None',
-        debugAuth: headers['X-Debug-Auth'] || 'None',
-      });
-      
-      // Set a timeout for the fetch request
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-      
-      try {
-        const response = await fetch(url, { 
-          headers,
-          // Add cache control to prevent caching
-          cache: 'no-store' as RequestCache,
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        // Log response status
-        console.log('Inventory API response status:', response.status);
-        
-        return handleApiResponse(response, 'Failed to fetch inventory dashboard data');
-      } catch (fetchError) {
-        clearTimeout(timeoutId);
-        
-        // Check if it's an abort error (timeout)
-        if (fetchError instanceof DOMException && fetchError.name === 'AbortError') {
-          throw new Error('Request timed out. The server took too long to respond.');
-        }
-        
-        // Network error (e.g., server not running, CORS issues)
-        if (fetchError instanceof TypeError && fetchError.message === 'Failed to fetch') {
-          // Implement retry logic for network errors, but limit to 3 retries
-          if (retryCount < 3) {
-            console.log(`Network error, retrying (${retryCount + 1}/3)...`);
-            // Wait a bit before retrying (exponential backoff)
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
-            return dashboardApi.getInventoryDashboard(search, page, limit, retryCount + 1);
-          }
-          
-          throw new Error(
-            'Network error: Unable to connect to the server. ' +
-            'Please check if the backend server is running and CORS is properly configured.'
-          );
-        }
-        
-        // Rethrow other fetch errors
-        throw fetchError;
-      }
-    } catch (error: unknown) {
-      console.error('Inventory dashboard fetch error:', error instanceof Error ? error.message : error);
-      throw error;
-    }
+  async getInventoryDashboard(search?: string, page: number = 1, limit: number = 50) {
+    const params = new URLSearchParams();
+    if (search) params.append('search', search);
+    params.append('page', page.toString());
+    params.append('limit', limit.toString());
+    
+    const cacheKey = `inventory-dashboard:${params.toString()}`;
+    return makeApiRequest(`/dashboard/inventory?${params}`, { method: 'GET' }, cacheKey);
   },
+
+  async getSalesAnalytics(period: number = 7) {
+    const cacheKey = `sales-analytics:${period}`;
+    return makeApiRequest(`/dashboard/analytics/sales?period=${period}`, { method: 'GET' }, cacheKey);
+  },
+
+  async getSales(period: number = 7, productId?: string, page: number = 1, limit: number = 50) {
+    const params = new URLSearchParams();
+    params.append('period', period.toString());
+    if (productId) params.append('product_id', productId);
+    params.append('page', page.toString());
+    params.append('limit', limit.toString());
+    
+    const cacheKey = `sales:${params.toString()}`;
+    return makeApiRequest(`/dashboard/sales?${params}`, { method: 'GET' }, cacheKey);
+  }
+};
+
+// Legacy functions - update to use new request method
+export const createProduct = async (productData: any) => {
+  return makeApiRequest('/inventory', {
+    method: 'POST',
+    body: JSON.stringify(productData),
+  });
+};
+
+export const updateProduct = async (productId: string, productData: any) => {
+  // Invalidate related cache entries
+  requestCache.clear(); // Simple cache invalidation - can be more granular
   
-  getSalesAnalytics: async (period: number = 7, retryCount: number = 0): Promise<any> => {
-    try {
-      // First ensure we have a valid session
-      await ensureAuthenticated();
-      
-      // Get the headers
-      const headers = await getAuthHeaders();
-      
-      // Attempt auth sync in a non-blocking way
-      attemptSupabaseSync(headers).catch(err => {
-        console.error('Sync error (non-blocking):', err instanceof Error ? err.message : err);
-      });
-      
-      const url = `${API_URL}/dashboard/analytics/sales?period=${period}&_ts=${Date.now()}`;
-      console.log('Fetching sales analytics from:', url);
-      console.log('Using headers:', {
-        contentType: headers['Content-Type'],
-        authType: headers['Authorization'] ? 'Bearer Token' : 'None',
-        debugAuth: headers['X-Debug-Auth'] || 'None',
-      });
-      
-      // Set a timeout for the fetch request
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-      
-      try {
-        const response = await fetch(url, { 
-          headers,
-          cache: 'no-store' as RequestCache,
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        // Log response status
-        console.log('Sales API response status:', response.status);
-        
-        return handleApiResponse(response, 'Failed to fetch sales analytics');
-      } catch (fetchError) {
-        clearTimeout(timeoutId);
-        
-        // Check if it's an abort error (timeout)
-        if (fetchError instanceof DOMException && fetchError.name === 'AbortError') {
-          throw new Error('Request timed out. The server took too long to respond.');
-        }
-        
-        // Network error handling with retry logic
-        if (fetchError instanceof TypeError && fetchError.message === 'Failed to fetch') {
-          if (retryCount < 3) {
-            console.log(`Network error, retrying (${retryCount + 1}/3)...`);
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
-            return dashboardApi.getSalesAnalytics(period, retryCount + 1);
-          }
-          
-          throw new Error(
-            'Network error: Unable to connect to the server. ' +
-            'Please check if the backend server is running and CORS is properly configured.'
-          );
-        }
-        
-        throw fetchError;
-      }
-    } catch (error: unknown) {
-      console.error('Sales analytics fetch error:', error instanceof Error ? error.message : error);
-      throw error;
-    }
-  },
+  return makeApiRequest(`/inventory/${productId}`, {
+    method: 'PUT',
+    body: JSON.stringify(productData),
+  });
+};
+
+export const deleteProduct = async (productId: string) => {
+  // Invalidate related cache entries
+  requestCache.clear();
   
-  getSales: async (
-    period: number = 7, 
-    productId?: string, 
-    page: number = 1, 
-    limit: number = 50, 
-    retryCount: number = 0
-  ): Promise<any> => {
-    try {
-      // First ensure we have a valid session
-      await ensureAuthenticated();
-      
-      // Get the headers
-      const headers = await getAuthHeaders();
-      
-      // Attempt auth sync in a non-blocking way
-      attemptSupabaseSync(headers).catch(err => {
-        console.error('Sync error (non-blocking):', err instanceof Error ? err.message : err);
-      });
-      
-      // Build query parameters
-      const queryParams = new URLSearchParams();
-      queryParams.append('period', period.toString());
-      if (productId) queryParams.append('product_id', productId);
-      queryParams.append('page', page.toString());
-      queryParams.append('limit', limit.toString());
-      queryParams.append('_ts', Date.now().toString()); // Prevent caching
-      
-      const url = `${API_URL}/dashboard/sales?${queryParams}`;
-      console.log('Fetching sales data from:', url);
-      
-      // Set a timeout for the fetch request
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-      
-      try {
-        const response = await fetch(url, { 
-          headers,
-          cache: 'no-store' as RequestCache,
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        // Log response status
-        console.log('Sales data API response status:', response.status);
-        
-        return handleApiResponse(response, 'Failed to fetch sales data');
-      } catch (fetchError) {
-        clearTimeout(timeoutId);
-        
-        // Check if it's an abort error (timeout)
-        if (fetchError instanceof DOMException && fetchError.name === 'AbortError') {
-          throw new Error('Request timed out. The server took too long to respond.');
-        }
-        
-        // Network error handling with retry logic
-        if (fetchError instanceof TypeError && fetchError.message === 'Failed to fetch') {
-          if (retryCount < 3) {
-            console.log(`Network error, retrying (${retryCount + 1}/3)...`);
-            await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
-            return dashboardApi.getSales(period, productId, page, limit, retryCount + 1);
-          }
-          
-          throw new Error(
-            'Network error: Unable to connect to the server. ' +
-            'Please check if the backend server is running and CORS is properly configured.'
-          );
-        }
-        
-        throw fetchError;
-      }
-    } catch (error: unknown) {
-      console.error('Sales data fetch error:', error instanceof Error ? error.message : error);
-      throw error;
-    }
-  },
+  return makeApiRequest(`/inventory/${productId}`, {
+    method: 'DELETE',
+  });
+};
+
+export const getProducts = async (search?: string, page: number = 1, limit: number = 50) => {
+  const params = new URLSearchParams();
+  if (search) params.append('search', search);
+  params.append('page', page.toString());
+  params.append('limit', limit.toString());
+  
+  const cacheKey = `products:${params.toString()}`;
+  return makeApiRequest(`/inventory?${params}`, { method: 'GET' }, cacheKey);
+};
+
+export const getAlerts = async () => {
+  const cacheKey = 'alerts';
+  return makeApiRequest('/alerts', { method: 'GET' }, cacheKey);
+};
+
+// Prefetch function for critical data
+export const prefetchDashboardData = async () => {
+  const prefetchPromises = [
+    dashboardApi.getInventoryDashboard('', 1, 10), // Prefetch first page
+    dashboardApi.getSalesAnalytics(7), // Prefetch weekly analytics
+  ];
+  
+  // Execute prefetch in background without blocking
+  Promise.allSettled(prefetchPromises).then(results => {
+    console.log('Prefetch completed:', results.filter(r => r.status === 'fulfilled').length + ' successful');
+  });
 };
 
 // Products API
