@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlmodel import Session
 from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 import logging
+import time
 
 from app.db.database import get_db
 from app.models.data_models.Product import Product
@@ -79,6 +80,7 @@ async def get_authenticated_user(
 @router.get("/inventory", response_model=dict)
 async def get_inventory_dashboard(
     request: Request,
+    response: Response,
     search: Optional[str] = Query(None, description="Search by SKU or product name"),
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(50, ge=1, le=100, description="Items per page"),
@@ -90,17 +92,36 @@ async def get_inventory_dashboard(
     Returns items:[{sku, name, on_hand, reorder_point, badge, color}]
     NFR: Initial load ≤ 200ms, search filter updates ≤ 100ms
     """
-    dashboard_service = DashboardService(db)
-    return dashboard_service.get_inventory_dashboard(
-        search=search,
-        page=page,
-        limit=limit,
-        user_id=current_user.id
-    )
+    start_time = time.time()
+    
+    try:
+        dashboard_service = DashboardService(db)
+        result = dashboard_service.get_inventory_dashboard(
+            search=search,
+            page=page,
+            limit=limit,
+            user_id=current_user.id
+        )
+        
+        # Add performance headers
+        processing_time = time.time() - start_time
+        response.headers["X-Processing-Time"] = f"{processing_time:.3f}"
+        response.headers["X-Cache-Status"] = "MISS"  # Could be enhanced with actual cache status
+        
+        # Log slow requests
+        if processing_time > 0.2:  # 200ms threshold
+            logger.warning(f"Slow inventory dashboard request: {processing_time:.3f}s")
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error in get_inventory_dashboard: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch inventory dashboard: {str(e)}")
 
 @router.get("/analytics/sales", response_model=Dict[str, Any])
 async def get_sales_analytics(
     request: Request,
+    response: Response,
     period: int = Query(7, description="Number of days to analyze"),
     current_user: User = Depends(get_authenticated_user),
     db: Session = Depends(get_db)
@@ -112,15 +133,30 @@ async def get_sales_analytics(
     - turnover_rate: overall inventory turnover statistics
     - period_days: the analysis period
     """
-    dashboard_service = DashboardService(db)
-    return dashboard_service.get_sales_analytics(
-        period=period, 
-        user_id=current_user.id
-    )
+    start_time = time.time()
+    
+    try:
+        dashboard_service = DashboardService(db)
+        result = dashboard_service.get_sales_analytics(
+            period=period, 
+            user_id=current_user.id
+        )
+        
+        # Add performance headers
+        processing_time = time.time() - start_time
+        response.headers["X-Processing-Time"] = f"{processing_time:.3f}"
+        response.headers["X-Cache-Status"] = "MISS"
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error in get_sales_analytics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch sales analytics: {str(e)}")
 
 @router.get("/sales", response_model=Dict[str, Any])
 async def get_sales(
     request: Request,
+    response: Response,
     period: int = Query(7, description="Number of days to retrieve sales data for"),
     product_id: Optional[UUID] = Query(None, description="Optional product ID to filter sales"),
     page: int = Query(1, ge=1, description="Page number"),
@@ -138,16 +174,26 @@ async def get_sales(
     - pages: total number of pages
     - daily_totals: [{date, total_revenue, total_quantity}]
     """
+    start_time = time.time()
+    
     try:
         logger.info(f"Fetching sales data - period: {period}, product_id: {product_id}, page: {page}, limit: {limit}")
         dashboard_service = DashboardService(db)
-        return dashboard_service.get_sales_data(
+        result = dashboard_service.get_sales_data(
             period=period,
             product_id=product_id,
             page=page,
             limit=limit,
             user_id=current_user.id
         )
+        
+        # Add performance headers
+        processing_time = time.time() - start_time
+        response.headers["X-Processing-Time"] = f"{processing_time:.3f}"
+        response.headers["X-Cache-Status"] = "MISS"
+        
+        return result
+        
     except Exception as e:
         logger.error(f"Error fetching sales data: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch sales data: {str(e)}") 

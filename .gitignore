@@ -22,3 +22,4 @@ migrate_connector_table.py
 migrate_organization_id.py 
 fix_connector_id_migration.py
 check_db_state.py
+.cursor/

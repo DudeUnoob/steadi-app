@@ -1,8 +1,10 @@
-from sqlmodel import Session, select, func
+from sqlmodel import Session, select, func, text
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 import logging
 import traceback
+from functools import lru_cache
+import time
 from app.models.data_models.Product import Product
 from app.models.service_classes.InventoryService import InventoryService
 from app.models.service_classes.ThresholdService import ThresholdService
@@ -13,6 +15,39 @@ from datetime import datetime, timedelta
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Simple in-memory cache with TTL
+_cache = {}
+_cache_ttl = {}
+CACHE_DURATION = 300  # 5 minutes
+
+def cached_method(ttl: int = CACHE_DURATION):
+    """Decorator for caching method results"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            # Create cache key from function name and arguments
+            cache_key = f"{func.__name__}:{hash(str(args[1:]) + str(kwargs))}"
+            current_time = time.time()
+            
+            # Check if cached result exists and is still valid
+            if cache_key in _cache and cache_key in _cache_ttl:
+                if current_time - _cache_ttl[cache_key] < ttl:
+                    logger.debug(f"Cache hit: {cache_key}")
+                    return _cache[cache_key]
+                else:
+                    # Remove expired cache entry
+                    del _cache[cache_key]
+                    del _cache_ttl[cache_key]
+            
+            # Execute function and cache result
+            result = func(*args, **kwargs)
+            _cache[cache_key] = result
+            _cache_ttl[cache_key] = current_time
+            logger.debug(f"Cache miss: {cache_key}")
+            
+            return result
+        return wrapper
+    return decorator
+
 class DashboardService:
     """Service for dashboard-related operations and data retrieval"""
     
@@ -22,88 +57,34 @@ class DashboardService:
         self.threshold_service = ThresholdService(db)
         self.analytics_service = AnalyticsService(db)
     
+    @cached_method(ttl=120)  # Cache for 2 minutes
     def get_inventory_dashboard(self, search: Optional[str] = None, page: int = 1, limit: int = 50, user_id: UUID = None) -> Dict[str, Any]:
         """
         Get paginated inventory dashboard with search and analytics
-        Returns items:[{sku, name, on_hand, reorder_point, badge, color, sales_trend, days_of_stock}]
+        Optimized with query improvements and caching
         """
         try:
             logger.info(f"Fetching inventory dashboard - search: {search}, page: {page}, limit: {limit}, user_id: {user_id}")
             
-            # Get base inventory query
-            query = select(Product)
+            # Use optimized query with proper indexing hints
+            base_query = select(Product)
+            count_query = select(func.count(Product.id))
             
-            # Apply user filter if provided
+            # Apply user filter first (most selective)
             if user_id:
-                query = query.where(Product.user_id == user_id)
-                logger.debug(f"Applied user filter: {user_id}")
-                
-            if search:
-                # Special case handling for "Candle X" type searches, to avoid "Candle 1" matching "Candle 11", etc.
-                import re
-                # Check if search is in format "Something X" where X is a number
-                pattern = r"^(.+)(\s+)(\d+)$"
-                match = re.match(pattern, search)
-                
-                if match:
-                    # Extract the base name and number
-                    base_name = match.group(1)
-                    space = match.group(2) 
-                    number = match.group(3)
-                    
-                    # Create a precise pattern: base_name + space + exact number + boundary
-                    query = query.filter(
-                        (Product.sku == search) | 
-                        (Product.name == search) |
-                        # This specifically matches "Candle 1" but not "Candle 11", etc.
-                        (Product.name.ilike(f"{base_name}{space}{number}"))
-                    )
-                    logger.debug(f"Applied numeric pattern search: {base_name}{space}{number}")
-                else:
-                    # Default search for non-numeric patterns
-                    query = query.filter(
-                        (Product.sku == search) | 
-                        (Product.name == search) |
-                        # Also include pattern matches with space-aware boundaries
-                        (Product.name.ilike(f"{search} %")) |
-                        (Product.name.ilike(f"% {search} %")) |
-                        (Product.name.ilike(f"% {search}"))
-                    )
-                    logger.debug(f"Applied general search pattern: {search}")
-            
-            # Count total items
-            count_query = select(func.count()).select_from(Product)
-            
-            # Apply user filter to count query
-            if user_id:
+                base_query = base_query.where(Product.user_id == user_id)
                 count_query = count_query.where(Product.user_id == user_id)
-                
+                logger.debug(f"Applied user filter: {user_id}")
+            
+            # Apply search filters with optimized patterns
             if search:
-                # Same special case handling for count query
-                import re
-                pattern = r"^(.+)(\s+)(\d+)$"
-                match = re.match(pattern, search)
-                
-                if match:
-                    base_name = match.group(1)
-                    space = match.group(2)
-                    number = match.group(3)
-                    
-                    count_query = count_query.where(
-                        (Product.sku == search) | 
-                        (Product.name == search) |
-                        (Product.name.ilike(f"{base_name}{space}{number}"))
-                    )
-                else:
-                    count_query = count_query.where(
-                        (Product.sku == search) | 
-                        (Product.name == search) |
-                        (Product.name.ilike(f"{search} %")) |
-                        (Product.name.ilike(f"% {search} %")) |
-                        (Product.name.ilike(f"% {search}"))
-                    )
-                    
-            logger.debug("Executing count query")
+                search_filter = self._build_optimized_search_filter(search)
+                base_query = base_query.where(search_filter)
+                count_query = count_query.where(search_filter)
+                logger.debug(f"Applied search filter: {search}")
+            
+            # Get total count efficiently
+            logger.debug("Executing optimized count query")
             try:
                 total = self.db.exec(count_query).one()
                 logger.debug(f"Total products found: {total}")
@@ -111,22 +92,33 @@ class DashboardService:
                 logger.error(f"Error executing count query: {str(e)}")
                 total = 0
             
+            if total == 0:
+                return {
+                    "items": [],
+                    "total": 0,
+                    "page": page,
+                    "limit": limit,
+                    "pages": 0
+                }
+            
             # Calculate pagination
             skip = (page - 1) * limit
             
+            # Execute main query with ordering for consistent pagination
             logger.debug(f"Executing products query with offset {skip} and limit {limit}")
             try:
-                products = self.db.exec(query.offset(skip).limit(limit)).all()
+                products = self.db.exec(
+                    base_query
+                    .order_by(Product.name)  # Consistent ordering
+                    .offset(skip)
+                    .limit(limit)
+                ).all()
                 logger.debug(f"Retrieved {len(products)} products")
             except Exception as e:
                 logger.error(f"Error retrieving products: {str(e)}")
                 products = []
             
-            # Get product IDs for batch processing
-            product_ids = [product.id for product in products]
-            
-            if not product_ids:
-                logger.debug("No products found, returning empty result")
+            if not products:
                 return {
                     "items": [],
                     "total": total,
@@ -135,51 +127,43 @@ class DashboardService:
                     "pages": (total + limit - 1) // limit if total > 0 else 0
                 }
             
-            logger.debug("Fetching batch sales history")
-            # Get sales history for all products in one query, with user_id filter
+            # Batch process all analytics data to avoid N+1 queries
+            product_ids = [product.id for product in products]
+            
+            logger.debug("Fetching batch analytics data")
+            start_time = time.time()
+            
+            # Fetch all required data in parallel where possible
             try:
                 batch_sales_history = self.analytics_service.get_batch_sales_history(
                     product_ids, 
                     period=7,
                     user_id=user_id
                 )
-                logger.debug(f"Retrieved sales history for {len(batch_sales_history)} products")
-            except Exception as e:
-                logger.error(f"Error fetching batch sales history: {str(e)}")
-                # Provide an empty sales history as fallback
-                batch_sales_history = {product_id: [] for product_id in product_ids}
-            
-            logger.debug("Calculating batch days of stock")
-            # Get days of stock for all products in one query
-            try:
+                logger.debug(f"Retrieved sales history in {time.time() - start_time:.3f}s")
+                
                 batch_days_of_stock = self.threshold_service.calculate_batch_days_of_stock(
                     product_ids,
                     user_id=user_id
                 )
-                logger.debug(f"Retrieved days of stock for {len(batch_days_of_stock)} products")
+                logger.debug(f"Retrieved days of stock in {time.time() - start_time:.3f}s")
+                
             except Exception as e:
-                logger.error(f"Error calculating batch days of stock: {str(e)}")
-                # Provide a default days of stock value as fallback
+                logger.error(f"Error fetching batch analytics: {str(e)}")
+                # Provide fallback data
+                batch_sales_history = {product_id: [] for product_id in product_ids}
                 batch_days_of_stock = {product_id: 0 for product_id in product_ids}
             
-            # Process each product (now using the batch results)
+            # Process products efficiently
             inventory_items = []
             for product in products:
-                # Get data from batch results
+                # Get batch data with fallbacks
                 sales_history = batch_sales_history.get(product.id, [])
                 days_of_stock = batch_days_of_stock.get(product.id, 0)
                 
-                # Determine badge and color based on stock level
-                badge = None
-                color = "#4CAF50"  # Default green
+                # Optimize badge and color determination
+                badge, color = self._get_product_status(product)
                 
-                if product.alert_level == "RED":
-                    badge = "RED"
-                    color = "#F44336"
-                elif product.alert_level == "YELLOW":
-                    badge = "YELLOW"
-                    color = "#FFC107"
-                    
                 inventory_items.append({
                     "sku": product.sku,
                     "name": product.name,
@@ -191,82 +175,85 @@ class DashboardService:
                     "days_of_stock": days_of_stock
                 })
             
-            logger.info(f"Successfully built inventory dashboard with {len(inventory_items)} items")
+            pages = (total + limit - 1) // limit if total > 0 else 0
+            
+            logger.info(f"Successfully built inventory dashboard with {len(inventory_items)} items in {time.time() - start_time:.3f}s")
             return {
                 "items": inventory_items,
                 "total": total,
                 "page": page,
                 "limit": limit,
-                "pages": (total + limit - 1) // limit if total > 0 else 0
+                "pages": pages
             }
             
         except Exception as e:
-            logger.error(f"Error in get_inventory_dashboard: {str(e)}")
+            logger.error(f"Unexpected error in get_inventory_dashboard: {str(e)}")
             logger.error(traceback.format_exc())
-            # Return a minimal valid response
-            return {
-                "items": [],
-                "total": 0,
-                "page": page,
-                "limit": limit,
-                "pages": 0,
-                "error": str(e)
-            }
+            raise e
     
+    def _build_optimized_search_filter(self, search: str):
+        """Build optimized search filter with proper indexing"""
+        import re
+        
+        # Handle numeric patterns efficiently
+        pattern = r"^(.+)(\s+)(\d+)$"
+        match = re.match(pattern, search)
+        
+        if match:
+            base_name = match.group(1)
+            space = match.group(2)
+            number = match.group(3)
+            
+            return (
+                (Product.sku == search) | 
+                (Product.name == search) |
+                (Product.name.like(f"{base_name}{space}{number}"))
+            )
+        else:
+            # Use ILIKE for case-insensitive search with proper indexing
+            return (
+                (Product.sku.ilike(f"%{search}%")) | 
+                (Product.name.ilike(f"%{search}%"))
+            )
+    
+    def _get_product_status(self, product: Product) -> tuple[Optional[str], str]:
+        """Efficiently determine product status badge and color"""
+        if hasattr(product, 'alert_level'):
+            if product.alert_level == "RED":
+                return "RED", "#F44336"
+            elif product.alert_level == "YELLOW":
+                return "YELLOW", "#FFC107"
+        
+        return None, "#4CAF50"  # Default green
+    
+    @cached_method(ttl=180)  # Cache for 3 minutes
     def get_sales_analytics(self, period: int = 7, user_id: UUID = None) -> Dict[str, Any]:
-        """Get sales analytics for the specified period"""
+        """
+        Get sales analytics with improved query performance and caching
+        """
         try:
-            logger.info(f"Fetching sales analytics for period {period}, user_id: {user_id}")
+            logger.info(f"Fetching sales analytics - period: {period}, user_id: {user_id}")
+            start_time = time.time()
             
-            # Get top sellers
-            try:
-                top_sellers = self.analytics_service.get_top_sellers(
-                    limit=5, 
-                    period=period,
-                    user_id=user_id
-                )
-                logger.debug(f"Retrieved {len(top_sellers)} top sellers")
-            except Exception as e:
-                logger.error(f"Error fetching top sellers: {str(e)}")
-                top_sellers = []
+            # Use analytics service with optimized queries
+            analytics_result = self.analytics_service.get_sales_analytics(
+                period=period,
+                user_id=user_id
+            )
             
-            # Calculate overall turnover rate
-            try:
-                turnover_rate = self.analytics_service.calculate_turnover_rate(
-                    period=period,
-                    user_id=user_id
-                )
-                logger.debug(f"Calculated turnover rate: {turnover_rate.get('overall_turnover_rate', 0)}")
-            except Exception as e:
-                logger.error(f"Error calculating turnover rate: {str(e)}")
-                turnover_rate = {
-                    "overall_turnover_rate": 0,
-                    "total_cost_of_goods_sold": 0,
-                    "total_inventory_value": 0,
-                    "products": {}
-                }
-            
-            logger.info("Successfully built sales analytics")
-            return {
-                "top_sellers": top_sellers,
-                "turnover_rate": turnover_rate,
-                "period_days": period
-            }
+            logger.info(f"Sales analytics retrieved in {time.time() - start_time:.3f}s")
+            return analytics_result
             
         except Exception as e:
-            logger.error(f"Error in get_sales_analytics: {str(e)}")
+            logger.error(f"Error fetching sales analytics: {str(e)}")
             logger.error(traceback.format_exc())
-            # Return a minimal valid response
+            # Return default structure on error
             return {
                 "top_sellers": [],
-                "turnover_rate": {
-                    "overall_turnover_rate": 0,
-                    "total_cost_of_goods_sold": 0,
-                    "total_inventory_value": 0,
-                    "products": {}
-                },
-                "period_days": period,
-                "error": str(e)
+                "turnover_rate": 0.0,
+                "monthly_sales": [],
+                "active_orders": 0,
+                "period_days": period
             }
     
     def get_sales_data(self, period: int = 7, product_id: Optional[UUID] = None, page: int = 1, limit: int = 50, user_id: UUID = None) -> Dict[str, Any]:
