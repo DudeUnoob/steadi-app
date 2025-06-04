@@ -90,7 +90,9 @@ app.add_middleware(
         "http://127.0.0.1:5173",
         "http://localhost:3000",  # Next.js development server
         "http://127.0.0.1:3000",
-        "*"  # Allow all origins in development - REMOVE IN PRODUCTION
+        "https://steadi-app.onrender.com",  
+        "https://steadi-app.vercel.app",
+        
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -145,3 +147,8 @@ async def root():
 async def health_check():
     """Health check endpoint for monitoring"""
     return {"status": "healthy", "timestamp": time.time()}
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port, reload=False)
