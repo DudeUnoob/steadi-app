@@ -16,7 +16,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      '@tabler/icons-react': '@tabler/icons-react/dist/esm/icons/index.mjs'
     },
   },
 
@@ -47,7 +46,7 @@ export default defineConfig({
           ui: ['@radix-ui/react-tabs', '@radix-ui/react-select', '@radix-ui/react-label'],
           charts: ['recharts'],
           utils: ['clsx', 'tailwind-merge', 'date-fns'],
-          icons: ['lucide-react', '@tabler/icons-react'],
+          icons: ['lucide-react'],
           state: ['zustand'],
           auth: ['@supabase/supabase-js'],
         },
@@ -55,14 +54,8 @@ export default defineConfig({
     },
     // Increase chunk size warning limit
     chunkSizeWarningLimit: 1000,
-    // Enable minification
-    minify: 'terser',
-    terserOptions: {
-      compress: {
-        drop_console: true, // Remove console.log in production
-        drop_debugger: true,
-      },
-    },
+    // Enable minification with esbuild (faster than terser)
+    minify: 'esbuild',
   },
 
   // Dependency optimization

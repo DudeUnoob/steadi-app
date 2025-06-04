@@ -10,22 +10,21 @@ import { ProductsTable } from "@/components/dashboard/products-table"
 import { DashboardHeader } from "@/components/dashboard/dashboard-header"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { Button } from "@/components/ui/button"
-import { Download, FileText, Users, Package, BarChart3, Loader2, Wifi, WifiOff } from "lucide-react"
+import { Download, FileText, Users, Package, BarChart3, Loader2, WifiOff } from "lucide-react"
 import { DateRangePicker } from "@/components/dashboard/date-range-picker"
 import { useToast } from "@/components/ui/use-toast"
 // Import Zustand store
 import { useDashboardStore } from "@/stores/dashboardStore"
 import type { DateRange } from "react-day-picker"
 // Import performance hooks
-import { usePerformanceMonitor, useIntersectionObserver } from "@/hooks/use-performance"
+import { useIntersectionObserver } from "@/hooks/use-intersection-observer"
 
 export default function Dashboard() {
   const { toast } = useToast();
   const dashboardRef = useRef<HTMLDivElement>(null);
   
   // Performance monitoring
-  const metrics = usePerformanceMonitor('Dashboard');
-  const isVisible = useIntersectionObserver(dashboardRef);
+  const isVisible = useIntersectionObserver(dashboardRef as React.RefObject<Element>);
 
   // Use the Zustand store
   const dashboard = useDashboardStore();

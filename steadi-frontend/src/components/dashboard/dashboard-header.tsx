@@ -1,7 +1,7 @@
 import {Link, useNavigate} from "react-router-dom"
 import { ModeToggle } from "@/components/dashboard/mode-toggle"
 import { Button } from "@/components/ui/button"
-import { Bell, Building, Copy, HelpCircle, LogOut, Search, Loader2 } from "lucide-react"
+import { Building, Copy, HelpCircle, LogOut, Search, Loader2 } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { useAuth } from "@/lib/AuthContext"
 import { useState, useEffect } from "react"

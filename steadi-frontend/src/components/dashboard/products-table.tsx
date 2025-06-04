@@ -96,7 +96,7 @@ export function ProductsTable() {
       const productsList = await productsApi.list()
       
       // Use the inventory dashboard endpoint to get product data with stock status
-      const response = await dashboardApi.getInventoryDashboard()
+      const response = await dashboardApi.getInventoryDashboard() as { items: any[] }
       
       // Create a mapping from SKU to product ID (UUID)
       const productMap = productsList.reduce((map: {[key: string]: any}, product: any) => {

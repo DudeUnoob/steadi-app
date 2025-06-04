@@ -260,7 +260,7 @@ export const useAlertsStore = create<AlertsState>((set, get) => ({
         throw new Error(errorData.detail || `Failed to send email alerts: ${response.statusText}`)
       }
       
-      const result = await response.json()
+      await response.json()
       
       // Refresh data after sending email
       await get().fetchAlertSummary()

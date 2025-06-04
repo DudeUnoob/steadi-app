@@ -63,7 +63,7 @@ export function OAuthCallback() {
       // Initialize OAuth with backend
       const result = await initializeOAuth(provider, {
         oauth_code: code,
-        shop_domain: shopDomain,
+        shop_domain: shopDomain || undefined,
         state: state
       })
 

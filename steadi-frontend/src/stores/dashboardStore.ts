@@ -180,14 +180,14 @@ export const useDashboardStore = create<DashboardState>((set, get) => {
         
         // Handle inventory result
         if (inventoryResult.status === 'fulfilled') {
-          set({ inventoryData: inventoryResult.value });
+          set({ inventoryData: inventoryResult.value as InventoryData });
         } else {
           console.error("Error fetching inventory data:", inventoryResult.reason);
         }
         
         // Handle analytics result
         if (analyticsResult.status === 'fulfilled') {
-          set({ salesAnalytics: analyticsResult.value });
+          set({ salesAnalytics: analyticsResult.value as SalesAnalytics });
         } else {
           console.error("Error fetching sales analytics:", analyticsResult.reason);
         }
@@ -224,7 +224,7 @@ export const useDashboardStore = create<DashboardState>((set, get) => {
         set({ isSalesLoading: true, salesError: null });
         
         const salesData = await dashboardApi.getSales(period, productId, page, limit);
-        set({ salesData });
+        set({ salesData: salesData as SalesData });
         
       } catch (error) {
         console.error("Error fetching sales data:", error);

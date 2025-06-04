@@ -55,13 +55,13 @@ const defaultData = [
 ]
 
 interface OverviewProps {
-  salesData?: Array<{ month: string; revenue: number }>
+  data?: Array<{ month: string; revenue: number }>
 }
 
-export function Overview({ salesData = [] }: OverviewProps) {
+export function Overview({ data = [] }: OverviewProps) {
   // Transform API data to match the chart format
-  const chartData = salesData.length > 0
-    ? salesData.map(item => ({
+  const chartData = data.length > 0
+    ? data.map(item => ({
         name: item.month,
         total: item.revenue
       }))

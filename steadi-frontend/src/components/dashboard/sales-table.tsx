@@ -92,9 +92,15 @@ const fallbackData: Sale[] = [
 
 interface SalesTableProps {
   productId?: string
+  data?: Array<{
+    id?: string
+    name: string
+    category?: string
+    revenue: number
+  }>
 }
 
-export function SalesTable({ productId }: SalesTableProps) {
+export function SalesTable({ productId, data }: SalesTableProps) {
   const { toast } = useToast()
   const [sorting, setSorting] = React.useState<SortingState>([])
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([])
@@ -142,8 +148,25 @@ export function SalesTable({ productId }: SalesTableProps) {
   }, [toast])
 
   React.useEffect(() => {
+    // If data prop is provided, use it directly (for summary tables)
+    if (data && data.length > 0) {
+      const transformedData = data.map((item, index) => ({
+        id: item.id || `summary-${index}`,
+        product: item.name,
+        product_id: item.id || `prod-${index}`,
+        quantity: 1, // Default quantity for summary
+        sale_date: new Date().toISOString().split('T')[0], // Today's date
+        total: item.revenue,
+        notes: item.category || ""
+      }))
+      setSales(transformedData)
+      setIsLoading(false)
+      return
+    }
+    
+    // Otherwise, fetch sales normally
     fetchSales()
-  }, [fetchSales])
+  }, [fetchSales, data])
 
   React.useEffect(() => {
     fetchSalesData(productId, currentPage, itemsPerPage)

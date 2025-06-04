@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Separator } from '@/components/ui/separator'
 import { useToast } from '@/components/ui/use-toast'
 import { 
   AlertTriangle, 
@@ -15,7 +14,6 @@ import {
   RefreshCw, 
   Clock,
   Package,
-  TrendingDown,
   CheckCircle2,
   X,
   MailCheck

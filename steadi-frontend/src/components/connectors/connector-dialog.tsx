@@ -6,8 +6,8 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Loader2, Store, ExternalLink, Shield, CheckCircle } from "lucide-react"
+import { Card, CardContent } from "@/components/ui/card"
+import { Loader2, Store, Shield } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { useConnectorStore } from "@/stores/connectorStore"
 
@@ -27,7 +27,7 @@ export function ConnectorDialog({ open, onOpenChange, connector, onClose }: Conn
   const [shopDomain, setShopDomain] = useState("")
   const [oauthUrls, setOauthUrls] = useState<any>({})
 
-  const { createConnector, updateConnector, isLoading, getOAuthUrls, initializeOAuth } = useConnectorStore()
+  const { createConnector, updateConnector, isLoading, getOAuthUrls } = useConnectorStore()
 
   useEffect(() => {
     if (connector) {
