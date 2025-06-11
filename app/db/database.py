@@ -19,20 +19,31 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL environment variable is not set")
 
-# Optimize connection pool settings
+# Optimize connection pool settings for Supabase
+connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {
+        "check_same_thread": False,
+        "timeout": 20,
+    }
+elif DATABASE_URL.startswith("postgresql"):
+    # Supabase-specific connection arguments
+    connect_args = {
+        "connect_timeout": 10,
+        "application_name": "steadi-app",
+        "options": "-c timezone=utc"
+    }
+
 engine = create_engine(
     DATABASE_URL, 
     echo=False,
     pool_pre_ping=True,  
     pool_recycle=3600,    # Recycle connections every hour
-    pool_size=20,         # Increased pool size for better performance
-    max_overflow=30,      # Allow more overflow connections
+    pool_size=10,         # Reduced for Supabase limits
+    max_overflow=20,      # Reduced for Supabase limits
     pool_timeout=30,      # Timeout for getting connection from pool
     poolclass=QueuePool,  # Use QueuePool for better performance
-    connect_args={
-        "check_same_thread": False,  # For SQLite compatibility
-        "timeout": 20,               # Connection timeout
-    } if DATABASE_URL.startswith("sqlite") else {}
+    connect_args=connect_args
 )
 
 # Add query performance monitoring

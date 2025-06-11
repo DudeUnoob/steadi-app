@@ -433,15 +433,7 @@ async def create_supplier(
     current_user: User = Depends(get_org_user_with_permissions("edit_suppliers"))
 ):
     """Create a new supplier (requires edit_suppliers permission)"""
-    # Ensure user_id is set to current user
-    supplier_data_dict = supplier_data.dict()
-    supplier_data_dict["user_id"] = current_user.id
-    
-    # Create the supplier
-    supplier = Supplier(**supplier_data_dict)
-    session.add(supplier)
-    
-    # Check for duplicate name in the organization
+    # Check for duplicate name in the organization FIRST
     if not current_user.organization_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -468,6 +460,13 @@ async def create_supplier(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="A supplier with this name already exists in your organization"
         )
+    
+    # Now create the supplier after validation passes
+    supplier_data_dict = supplier_data.dict()
+    supplier_data_dict["user_id"] = current_user.id
+    
+    supplier = Supplier(**supplier_data_dict)
+    session.add(supplier)
     
     try:
         session.commit()
